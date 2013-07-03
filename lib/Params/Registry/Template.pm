@@ -4,6 +4,12 @@ use 5.010;
 use strict;
 use warnings FATAL => 'all';
 
+use Moose;
+use namespace::autoclean;
+
+use Params::Registry::Types qw(Type);
+use MooseX::Types::Moose    qw(Maybe Bool Int Str ArrayRef CodeRef);
+
 =head1 NAME
 
 Params::Registry::Template - Template class for an individual parameter
@@ -18,14 +24,33 @@ our $VERSION = '0.01';
 
 =head1 SYNOPSIS
 
-Quick summary of what the module does.
-
-Perhaps a little code snippet.
-
-    use Params::Registry::Template;
-
-    my $foo = Params::Registry::Template->new();
-    ...
+    my $registry = Params::Registry->new(
+        params => [
+            # These constructs are passed into
+            # the parameter template module.
+            {
+                # The name is consumed before
+                # the object is constructed.
+                name       => 'foo',
+                # the type of individual values
+                type       => 'Num',
+                # the composite type with coercion
+                composite  => 'NumberRange',
+                # format string or sub for individual values
+                format     => '%0.2f',
+                # do not delete empty values
+                empty      => 1,
+                universe   => \&_extrema_from_db,
+                complement => \&_range_complement,
+                unwind     => \&_range_to_arrayref,
+            },
+            {
+                name => 'bar',
+                # Lengthy definitions can be reused.
+                use  => 'foo',
+            },
+        ],
+    );
 
 =head1 METHODS
 
@@ -37,12 +62,17 @@ All arguments to the constructor are optional unless specified otherwise.
 
 =item registry
 
-This back-reference to the registry is the only required parameter. It
-is required
+This back-reference to the registry is the only required
+argument. Since the template objects are constructed from a factory
+inside L<Params::Registry>, it will be supplied automatically.
 
 =cut
 
 has registry => (
+    is       => 'ro',
+    isa      => 'Params::Registry',
+    required => 1,
+    weak_ref => 1,
 );
 
 =item type
@@ -53,16 +83,27 @@ default is C<Str>.
 =cut
 
 has type => (
+    is      => 'ro',
+    isa     => Type,
+    lazy    => 1,
+    default => sub { Str },
 );
 
 =item composite
 
-If this type is present, even single-valued parameters will be coerced
-into it via C<ArrayRef[Item]>.
+A composite type to envelop one or more distinct parameter values. If
+a composite type is specified, even single-valued parameters will be
+coerced into that composite type as if it was an C<ArrayRef[Item]>. As
+such, composite types used in this field should be specified with
+coercions that expect C<ArrayRef[Item]>.
 
 =cut
 
 has composite => (
+    is      => 'ro',
+    isa     => Type,
+    lazy    => 1,
+    default => sub { Str },
 );
 
 =item format
@@ -73,6 +114,10 @@ values ought to be serialized. The default value is C<%s>.
 =cut
 
 has format => (
+    is      => 'ro',
+    isa     => Str|CodeRef,
+    lazy    => 1,
+    default => '%s',
 );
 
 =item depends
@@ -83,6 +128,10 @@ accompany this one.
 =cut
 
 has depends => (
+    is      => 'ro',
+    isa     => ArrayRef[Str],
+    lazy    => 1,
+    default => sub { [] },
 );
 
 =item conflicts
@@ -93,6 +142,10 @@ not> be seen with this one.
 =cut
 
 has conflicts => (
+    is      => 'ro',
+    isa     => ArrayRef[Str],
+    lazy    => 1,
+    default => sub { [] },
 );
 
 =item consumes
@@ -106,6 +159,10 @@ in the input at the same time.
 =cut
 
 has consumes => (
+    is      => 'ro',
+    isa     => ArrayRef[Str],
+    lazy    => 1,
+    default => sub { [] },
 );
 
 =item using
@@ -116,6 +173,8 @@ consumed parameters.
 =cut
 
 has using => (
+    is  => 'ro',
+    isa => CodeRef,
 );
 
 =item cardinality
@@ -131,6 +190,11 @@ I<required>.
 =cut
 
 has cardinality => (
+    is      => 'ro',
+    # this complains if you use MooseX::Types
+    isa     => 'ArrayRef[Maybe[Int]]|Int',
+    lazy    => 1,
+    default => sub { [0, undef] },
 );
 
 =item shift
@@ -146,6 +210,10 @@ query string without having to parse it.
 =cut
 
 has shift => (
+    is      => 'ro',
+    isa     => Bool,
+    lazy    => 1,
+    default => 0,
 );
 
 =item empty
@@ -160,6 +228,10 @@ C<undef> or the empty string (or anything else).
 =cut
 
 has empty => (
+    is      => 'ro',
+    isa     => Bool,
+    lazy    => 1,
+    default => 0,
 );
 
 =item default
@@ -175,34 +247,94 @@ L<Moose>, is expected to be a C<CODE> reference.
 =cut
 
 has default => (
+    is  => 'ro',
+    isa => CodeRef,
 );
 
 =item universe
 
-For L</Set> and L</Range> parameters, this is a C<CODE> reference which
-produces a universal set.
+For L</Set> and L</Range> parameters, this is a C<CODE> reference
+which produces a universal set against which the input can be
+negated. In parameter serialization, there are often cases wherein a
+shorter string can be achieved by presenting the negated set and
+adding the parameter's name to the special parameter
+L<Params::Registry/complement>. The subroutine can, for instance,
+query a database for the full set in question and return a type
+compatible with the parameter instance.
 
 =cut
 
 has universe => (
+    is  => 'ro',
+    isa => CodeRef,
 );
 
-=item descending
+=item complement
+
+For L</Set> and L</Range> parameters, this C<CODE> reference will need
+to do the right thing to produce the inverse set.
+
+    {
+        # ...
+        complement => sub {
+            # assuming Set::Scalar
+            my ($me, $universe) = @_;
+            $me->complement($universe); },
+        # ...
+    }
+
+=cut
+
+has complement => (
+    is  => 'ro',
+    isa => CodeRef,
+);
+
+=item unwind
+
+For composite object parameters, specify a C<CODE> reference to a
+subroutine which will turn the object into either a scalar, an
+C<ARRAY> reference of scalars, or an I<unblessed> C<HASH> reference
+containing valid parameter keys to either scalars or C<ARRAY>
+references of scalars. In the case the subroutine returns a C<HASH>
+reference, the registry will replace the parameter in context with the
+parameters supplied, effectively performing the inverse of the
+L</consume> function. To encourage code reuse, this function is
+applied before L</reverse> despite the ability to reverse the
+resulting list in the function.
+
+    {
+        # ...
+        # assuming Set::Scalar
+        unwind => sub { [sort shift->elements] },
+        # ...
+    }
+
+=cut
+
+has unwind => (
+    is  => 'ro',
+    isa => CodeRef,
+);
+
+=item reverse
 
 For L</Range> parameters, this bit indicates whether the input values
-should be interpreted and/or serialized in descending order. This also
+should be interpreted and/or serialized in reverse order. This also
 governs the serialization of L</Set> parameters.
 
 =cut
 
-has descending => (
+has reverse => (
+    is      => 'ro',
+    isa     => Bool,
+    lazy    => 1,
+    default => 0,
 );
 
 =back
 
 =cut
-
-
 
 =head1 AUTHOR
 
@@ -227,7 +359,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 implied.  See the License for the specific language governing
 permissions and limitations under the License.
 
-
 =cut
+
+__PACKAGE__->meta->make_immutable;
 
 1; # End of Params::Registry::Template

@@ -82,7 +82,6 @@ When nothing else will do
 
 =back
 
-
 =head3 Cascading
 
 There are instances, for example in the case of supporting a legacy
