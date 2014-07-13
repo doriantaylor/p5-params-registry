@@ -32,16 +32,28 @@ our $VERSION = '0.01';
                 # The name is consumed before
                 # the object is constructed.
                 name       => 'foo',
+
                 # the type of individual values
                 type       => 'Num',
+
                 # the composite type with coercion
                 composite  => 'NumberRange',
+
                 # format string or sub for individual values
                 format     => '%0.2f',
+
                 # do not delete empty values
                 empty      => 1,
+
+                # For sets and ranges:
+                # fetch range extrema or universal set
                 universe   => \&_extrema_from_db,
+
+                # supply an operation that complements the given
+                # set/range against the extrema/universe
                 complement => \&_range_complement,
+
+                # supply a serialization function
                 unwind     => \&_range_to_arrayref,
             },
             {
@@ -56,7 +68,9 @@ our $VERSION = '0.01';
 
 =head2 new
 
-All arguments to the constructor are optional unless specified otherwise.
+This constructor is invoked by a factory method in
+L<Params::Registry>. All arguments are optional unless specified
+otherwise.
 
 =over 4
 

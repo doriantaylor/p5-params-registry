@@ -34,6 +34,8 @@ our $VERSION = '0.01';
 
 =head2 Type
 
+This is the type for types.
+
 =cut
 
 class_type 'MooseX::Types::UndefinedType';
@@ -44,6 +46,9 @@ subtype Type, as join('|', qw( MooseX::Types::UndefinedType
                                MooseX::Types::TypeDecorator
                                Moose::Meta::TypeConstraint
                                ClassName RoleName Str ));
+
+coerce Type, from Str, via { find_type_constraint(shift) };
+
 
 =head2 Template
 

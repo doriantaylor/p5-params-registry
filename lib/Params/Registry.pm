@@ -4,6 +4,9 @@ use 5.010;
 use strict;
 use warnings FATAL => 'all';
 
+use Moose;
+use namespace::autoclean;
+
 =head1 NAME
 
 Params::Registry - Housekeeping for sets of named parameters
@@ -21,15 +24,24 @@ our $VERSION = '0.01';
     use Params::Registry;
 
     my $registry = Params::Registry->new(
-        # express sequence with an arrayref
+        # express the global parameter sequence with an arrayref
         params => [
             {
+                # see Params::Registry::Template for the full list of
+                # attributes
                 name => 'foo',
             },
         ],
+        # specify groups containing potentially-overlapping subsets of
+        # parameters for different aspects of your system
+        groups => {
+            stuff => [qw(foo)],
+        },
+        # override the name of the special 'complement' parameter
+        complement => 'negate',
     );
 
-    my $instance = $registry->process(\%params);
+    my $instance = eval { $registry->process(\%params) };
 
     $uri->query($instance->as_string);
 
@@ -93,7 +105,6 @@ and C<day> parameters, as well as a C<date> parameter which
 C<consumes> the former three, C<using> a subroutine reference to do
 it. Consumed parameters are deleted from the set.
 
-
 =head3 Complement
 
 A special parameter, C<complement>, is defined to signal parameters in
@@ -110,11 +121,70 @@ do.
 
 =head1 METHODS
 
-=head2 foo
+=head2 new
+
+=over 4
+
+=item params
 
 =cut
 
-sub foo {
+around BUILDARGS => sub {
+    my $orig  = shift;
+    my $class = shift;
+
+    $class->$orig(@_);
+};
+
+has params => (
+    is       => 'ro',
+    isa      => ArrayRef[Template],
+    coerce   => 1,
+    required => 1,
+);
+
+=item groups
+
+
+
+=cut
+
+has groups => (
+    is      => 'ro',
+    isa     => HashRef[ArrayRef[Str]],
+    lazy    => 1,
+    default => sub { {} },
+);
+
+=item complement
+
+This is the I<name> of the special parameter used to indicate which
+other parameters should have a
+L<Params::Registry::Template/complement> operation run over them. The
+default name, naturally, is C<complement>. This parameter will always
+be added last.
+
+=cut
+
+has complement => (
+    is      => 'ro',
+    isa     => Str,
+    lazy    => 1,
+    default => 'complement',
+);
+
+=back
+
+=head2 process
+
+=cut
+
+sub process {
+    my $self = shift;
+
+    my $instance = Params::Registry::Instance->new(registry => $self);
+
+    $instance->_process(shift);
 }
 
 
@@ -181,5 +251,7 @@ permissions and limitations under the License.
 
 
 =cut
+
+__PACKAGE__->meta->make_immutable;
 
 1; # End of Params::Registry
