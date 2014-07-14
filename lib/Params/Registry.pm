@@ -7,6 +7,14 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
+use MooseX::Types::Moose qw(Str HashRef ArrayRef);
+use Params::Registry::Types qw(Template);
+
+use MooseX::Params::Validate ();
+
+use Params::Registry::Template;
+use Params::Registry::Instance;
+
 =head1 NAME
 
 Params::Registry - Housekeeping for sets of named parameters
@@ -123,9 +131,16 @@ do.
 
 =head2 new
 
+Instantiate a new parameter registry.
+
+=head3 Arguments
+
 =over 4
 
 =item params
+
+An C<ARRAY> reference of C<HASH> references, containing the specs to
+be passed into L<Params::Registry::Template> objects.
 
 =cut
 
@@ -133,36 +148,92 @@ around BUILDARGS => sub {
     my $orig  = shift;
     my $class = shift;
 
-    $class->$orig(@_);
+    my %p = MooseX::Params::Validate::validated_hash(
+        \@_,
+        params     => { isa => 'ArrayRef[Maybe[HashRef]]' },
+        complement => { isa => 'Maybe[Str]',                    optional => 1 },
+        groups     => { isa => 'HashRef[ArrayRef[Maybe[Str]]]', optional => 1 },
+    );
+
+    # fiddle with input and output
+    my @entries = @{delete $p{params}};
+    $p{params} = {};
+
+    # instantiate the templates
+    my (@seq, %map);
+    for my $entry (@entries) {
+        my $name = delete $entry->{name};
+        push @seq, $name;
+        if (my $use = delete $entry->{use}) {
+            # TODO: recursive
+            $map{$name} = $use;
+        }
+        else {
+            # TODO: raise exception on duplicate key
+            $p{params}{$name} = $entry;
+        }
+    }
+
+    # now stitch the reused params together
+    while (my ($k, $v) = each %map) {
+        # TODO throw a proper error if the target isn't found
+        my $p = $p{params}{$v} or die;
+
+        $p{params}{$k} = $p;
+    }
+
+    # add param sequence to BUILD
+    $p{_sequence} = \@seq;
+
+    $class->$orig(%p);
 };
 
-has params => (
+sub BUILD {
+    my $self = shift;
+    my $p = $self->_params;
+
+    for my $k (keys %$p) {
+        $p->{$k} = Params::Registry::Template->new
+            (%{$p->{$k}}, registry => $self);
+    }
+}
+
+has _params => (
     is       => 'ro',
-    isa      => ArrayRef[Template],
-    coerce   => 1,
+    #isa      => HashRef[Template],
+    isa      => HashRef,
+    #coerce   => 1,
+    required => 1,
+    init_arg => 'params',
+);
+
+has _sequence => (
+    is       => 'ro',
+    isa      => ArrayRef[Str],
     required => 1,
 );
 
 =item groups
 
-
+A C<HASH> reference containing C<ARRAY> references of parameters to include
 
 =cut
 
-has groups => (
-    is      => 'ro',
-    isa     => HashRef[ArrayRef[Str]],
-    lazy    => 1,
-    default => sub { {} },
+has _groups => (
+    is       => 'ro',
+    isa      => HashRef[ArrayRef[Str]],
+    lazy     => 1,
+    default  => sub { {} },
+    init_arg => 'groups',
 );
 
 =item complement
 
 This is the I<name> of the special parameter used to indicate which
-other parameters should have a
+I<other> parameters should have a
 L<Params::Registry::Template/complement> operation run over them. The
 default name, naturally, is C<complement>. This parameter will always
-be added last.
+be added to the query string last.
 
 =cut
 
@@ -175,7 +246,11 @@ has complement => (
 
 =back
 
-=head2 process
+=head2 process $STR | $URI | \%PARAMS
+
+Turn a L<URI>, query string or C<HASH> reference (such as those found
+in L<Catalyst> or L<URI::QueryParam>) into a
+L<Params::Registry::Instance>. May croak.
 
 =cut
 
@@ -187,6 +262,16 @@ sub process {
     $instance->_process(shift);
 }
 
+=head2 template $KEY
+
+Return a particular template from the registry.
+
+=cut
+
+sub template {
+    my ($self, $key) = @_;
+    $self->_params->{$key};
+}
 
 =head1 AUTHOR
 

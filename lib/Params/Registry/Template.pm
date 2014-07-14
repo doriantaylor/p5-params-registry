@@ -105,11 +105,11 @@ has type => (
 
 =item composite
 
-A composite type to envelop one or more distinct parameter values. If
-a composite type is specified, even single-valued parameters will be
-coerced into that composite type as if it was an C<ArrayRef[Item]>. As
-such, composite types used in this field should be specified with
-coercions that expect C<ArrayRef[Item]>.
+Specifies a composite type to envelop one or more distinct parameter
+values. If a composite type is specified, even single-valued
+parameters will be coerced into that composite type as if it was an
+C<ArrayRef[Item]>. As such, composite types used in this field should
+be specified with coercions that expect C<ArrayRef[Item]>.
 
 =cut
 

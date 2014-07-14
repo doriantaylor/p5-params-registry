@@ -8,7 +8,7 @@ use Moose;
 use namespace::autoclean;
 
 use MooseX::Types -declare => [
-    qw(Type Template)
+    qw(Type Template TemplateSet)
 ];
 
 use MooseX::Types::Moose qw(Str ClassName RoleName HashRef);
@@ -34,7 +34,7 @@ our $VERSION = '0.01';
 
 =head2 Type
 
-This is the type for types.
+This is the type for types. XZibit approved.
 
 =cut
 
@@ -47,15 +47,27 @@ subtype Type, as join('|', qw( MooseX::Types::UndefinedType
                                Moose::Meta::TypeConstraint
                                ClassName RoleName Str ));
 
-coerce Type, from Str, via { find_type_constraint(shift) };
+# yo dawg i herd u liek types so we put a type in yo type so u can
+# type whiel u type
+coerce Type, from Str, via {
+    my $x = shift;
+    return find_or_create_type_constraint($x) || class_type($x);
+};
+# ...that meme will never get old.
 
 
 =head2 Template
 
+
 =cut
 
 class_type Template, { class => 'Params::Registry::Template' };
-coerce Template, from HashRef, via { Params::Registry::Template->new(shift) };
+#coerce Template, from HashRef, via { Params::Registry::Template->new(shift) };
+
+#subtype TemplateSet, as HashRef[HashRef];
+#coerce TemplateSet,
+
+=head2 
 
 =head1 AUTHOR
 
