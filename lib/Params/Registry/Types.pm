@@ -7,6 +7,8 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
+use Moose::Util::TypeConstraints qw(find_or_create_type_constraint class_type);
+
 use MooseX::Types -declare => [
     qw(Type Template TemplateSet)
 ];
@@ -34,7 +36,7 @@ our $VERSION = '0.01';
 
 =head2 Type
 
-This is the type for types. XZibit approved.
+This is the type for types. XZibit-approved.
 
 =cut
 

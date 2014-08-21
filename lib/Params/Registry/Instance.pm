@@ -30,20 +30,48 @@ has _registry => (
 has _content => (
     is       => 'ro',
     isa      => 'HashRef',
+    traits   => [qw(Hash)],
     lazy     => 1,
     default  => sub { {} },
+    handles  => {
+        
+    },
 );
 
-sub BUILD {
-    my $self = shift;
-}
+has _other => (
+    is       => 'ro',
+    isa      => 'HashRef',
+    traits   => [qw(Hash)],
+    lazy     => 1,
+    default  => sub { {} },
+    handles  => {
+        
+    },
+);
+
+# sub BUILD {
+#     my $self = shift;
+# }
 
 sub _process {
     my ($self, $query) = @_;
 
-    Carp::croak("query must be a HASH reference") unless ref $query eq 'HASH';
+    if (my $ref = ref $query) {
+        Carp::croak("query must be a HASH reference") unless $ref eq 'HASH';
+    }
+    else {
+        # is a string
+    }
 
-    
+    my $r = $self->_registry;
+    my $c = $self->_content;
+
+    # have to do depends/conflicts/consumes
+    # consumes implies depends and conflicts
+
+    while (my ($k, $v) = each %$query) {
+        $self->set($k, $v);
+    }
 }
 
 =head1 SYNOPSIS
@@ -83,13 +111,14 @@ sub _process {
 =cut
 
 sub get {
+    my ($self, $key) = @_;
 }
 
-=head2 set $KEY, $VAL
+=head2 set $KEY, @VALS
 
 Modifies one of the parameters in the instance. Attempts to coerce the
 input according to the template. Accepts either a literal, an C<ARRAY>
-reference of literals, or the target datatype.
+reference of literals, or the target datatype. Returns the I<old> value
 
 This method will throw an exception if the input can't be reconciled
 with the L<Params::Registry::Template> (i.e., if the input falls
@@ -98,18 +127,48 @@ outside the lexical or semantic constraints).
 =cut
 
 sub set {
+    my ($self, $key, @vals) = @_;
+    @vals = @{$vals[0]} if @vals == 1 and ref $vals[0] eq 'ARRAY';
+
+    my $content  = $self->_content;
+    my $template = $self->_registry->template($key);
+
+    if ($template) {
+        # do content
+        my $obj = $template->process(@vals);
+        $content->{$key} = $obj;
+    }
+    else {
+        my $other = $self->_other;
+        my $x = $other->{$key};
+        if (@vals == 0 or not defined $vals[0]) {
+            delete $other->{$key};
+        }
+    }
 }
 
-=head2 group $HANDLE
+=head2 group $KEY
 
 Selects a subset of the instance according to the groups laid out in
 the L<Params::Registry> specification, clones them, and returns them
-in a C<HASH> reference, suitable for 
+in a C<HASH> reference, suitable for passing into another method.
 
 =cut
 
 sub group {
-    my ($self, $handle) = @_;
+    my ($self, $key) = @_;
+
+    my %out;
+    my @list = @{$self->_registry->_groups->{$key} || []};
+    my $c = $self->_content;
+    for my $k (@list) {
+        # XXX ACTUALLY CLONE THESE
+
+        # use exists, not defined
+        $out{$k} = $c->{$k} if exists $c->{$k};
+    }
+
+    \%out;
 }
 
 =head2 clone $KEY => $VAL [...] | \%PAIRS
@@ -121,6 +180,22 @@ be clean, or wrapped in an C<eval>.
 =cut
 
 sub clone {
+    my $self = shift;
+    my %p = ref $_[0] eq 'HASH' ? %{$_[0]} : @_;
+
+    # XXX deep copy?
+    my %orig = %{$self->_content};
+
+    my $out = Params::Registry::Instance->new(
+        registry => $self->_registry,
+        _content => \%orig,
+    );
+
+    for my $k (keys %p) {
+        $out->set($k, $p{$k});
+    }
+
+    $out;
 }
 
 =head2 as_string
@@ -130,6 +205,9 @@ Generates the canonical URI query string according to the template.
 =cut
 
 sub as_string {
+    my $self = shift;
+    my @seq = $self->_registry->sequence;
+
 }
 
 =head2 make_uri $URI
@@ -147,6 +225,7 @@ a link.
 =cut
 
 sub make_uri {
+    my ($self, $uri) = @_;
 }
 
 =head1 AUTHOR

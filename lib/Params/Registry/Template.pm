@@ -179,37 +179,134 @@ has consumes => (
     default => sub { [] },
 );
 
-=item using
+=item consumer
 
 For cascading parameters, a C<CODE> reference to operate on the
-consumed parameters.
+consumed parameters in order to produce the desired I<atomic> value.
+To produce a I<composite> parameter value from multiple existing
+I<values>, define a coercion from C<ArrayRef> to the type supplied
+to the L</composite> property.
+
+The default consumer function, therefore, simply returns an C<ARRAY>
+reference that collates the values from the parameters defined in
+the L</consumes> property.
+
+Once again, this functionality exists primarily for the purpose of
+interfacing with HTML forms that lack the latest features. Consider
+the following example:
+
+    # ...
+    {
+        name => 'year',
+        type => 'Int',
+        max  => 1,
+    },
+    {
+        name => 'month',
+        type => 'Int',
+        max  => 1,
+    },
+    {
+        name => 'day',
+        type => 'Int',
+        max  => 1,
+    },
+    {
+        name => 'date',
+
+        # this would be defined elsewhere with coercion from a
+        # string that matches 'YYYY-MM-DD', for direct input.
+        type => 'MyDateTimeType',
+
+        # we don't want multiple values for this parameter.
+        max  => 1,
+
+        # in lieu of being explicitly defined in the input, this
+        # parameter will be constructed from the following:
+        consumes => [qw(year month day)],
+
+        # and this is how it will happen:
+        consumer => sub {
+            DateTime->new(
+                year  => $_[0],
+                month => $_[1],
+                day   => $_[2],
+            );
+        },
+    },
+    # ...
+
+Here, we may have a form which contains a C<date> field for the newest
+browsers that support the new form control, or otherwise generated via
+JavaScript. As a fallback mechanism (e.g. for an older browser, robot,
+or paranoid person), form fields for the C<year>, C<month>, and C<day>
+can also be specified in the markup, and used to generate C<date>.
 
 =cut
 
-has using => (
-    is  => 'ro',
-    isa => CodeRef,
-);
+sub _default_consume {
+    [@_];
+}
 
-=item cardinality
-
-Either a scalar depicting an exact count, or a two-element C<ARRAY>
-reference depicting the minimum and maximum number of recognized
-values from the point of view of the I<input>. Subsequent values will
-either be truncated or L<shifted left|/shift>. The default setting is
-C<[0, undef]>, i.e. the parameter must have zero or more values. Set
-the minimum cardinality to 1 or higher to make the parameter
-I<required>.
-
-=cut
-
-has cardinality => (
+has consumer => (
     is      => 'ro',
-    # this complains if you use MooseX::Types
-    isa     => 'ArrayRef[Maybe[Int]]|Int',
+    isa     => CodeRef,
     lazy    => 1,
-    default => sub { [0, undef] },
+    default => sub { \&_default_consume },
 );
+
+# =item cardinality
+
+# Either a scalar depicting an exact count, or a two-element C<ARRAY>
+# reference depicting the minimum and maximum number of recognized
+# values from the point of view of the I<input>. Subsequent values will
+# either be truncated or L<shifted left|/shift>. The default setting is
+# C<[0, undef]>, i.e. the parameter must have zero or more values. Set
+# the minimum cardinality to 1 or higher to make the parameter
+# I<required>.
+
+# =cut
+
+# has cardinality => (
+#     is      => 'ro',
+#     # this complains if you use MooseX::Types
+#     isa     => 'ArrayRef[Maybe[Int]]|Int',
+#     lazy    => 1,
+#     default => sub { [0, undef] },
+# );
+
+=item min
+
+The minimum number of values I<required> for the given parameter. Set
+to 1 or higher to signal that the parameter is required. The default
+value is 0, meaning that the parameter is optional.
+
+=cut
+
+has min => (
+    is      => 'ro',
+    isa     => Int,
+    lazy    => 1,
+    default => 0,
+);
+
+=item max
+
+The maximum number of values I<acknowledged> for the given parameter.
+Subsequent values will either be truncated to the right or shifted to
+the left, depending on the value of the L</shift> property. Setting
+this property to 1 will force parameters to be scalar. The default is
+C<undef>, which accepts an unbounded list of values.
+q
+=cut
+
+has max => (
+    is      => 'ro',
+    isa     => Maybe[Int],
+    lazy    => 1,
+    default => sub { undef },
+);
+
 
 =item shift
 
@@ -312,8 +409,8 @@ C<ARRAY> reference of scalars, or an I<unblessed> C<HASH> reference
 containing valid parameter keys to either scalars or C<ARRAY>
 references of scalars. In the case the subroutine returns a C<HASH>
 reference, the registry will replace the parameter in context with the
-parameters supplied, effectively performing the inverse of the
-L</consume> function. To encourage code reuse, this function is
+parameters supplied, effectively performing the inverse of a composite
+type coercion function. To encourage code reuse, this function is
 applied before L</reverse> despite the ability to reverse the
 resulting list in the function.
 
@@ -348,7 +445,17 @@ has reverse => (
 
 =back
 
+=head2 process
+
+
+
 =cut
+
+=head2 unprocess
+
+=cut
+
+
 
 =head1 AUTHOR
 

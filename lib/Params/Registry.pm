@@ -7,7 +7,7 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
-use MooseX::Types::Moose qw(Str HashRef ArrayRef);
+use MooseX::Types::Moose qw(Maybe Str HashRef ArrayRef);
 use Params::Registry::Types qw(Template);
 
 use MooseX::Params::Validate ();
@@ -202,26 +202,35 @@ has _params => (
     is       => 'ro',
     #isa      => HashRef[Template],
     isa      => HashRef,
+    traits   => [qw(Hash)],
     #coerce   => 1,
     required => 1,
     init_arg => 'params',
+    handles  => {
+        template => 'get',
+    },
 );
 
 has _sequence => (
     is       => 'ro',
+    traits   => [qw(Array)],
     isa      => ArrayRef[Str],
     required => 1,
+    handles  => {
+        sequence => 'elements',
+    },
 );
 
 =item groups
 
-A C<HASH> reference containing C<ARRAY> references of parameters to include
+A C<HASH> reference such that the keys are names of groups, and the
+values are C<ARRAY> references of parameters to include in each group.
 
 =cut
 
 has _groups => (
     is       => 'ro',
-    isa      => HashRef[ArrayRef[Str]],
+    isa      => HashRef[Maybe[ArrayRef[Maybe[Str]]]],
     lazy     => 1,
     default  => sub { {} },
     init_arg => 'groups',
@@ -266,12 +275,9 @@ sub process {
 
 Return a particular template from the registry.
 
-=cut
+=head2 sequence
 
-sub template {
-    my ($self, $key) = @_;
-    $self->_params->{$key};
-}
+Return the global sequence of parameters for serialization.
 
 =head1 AUTHOR
 
