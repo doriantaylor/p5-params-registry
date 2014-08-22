@@ -192,9 +192,16 @@ sub BUILD {
     my $self = shift;
     my $p = $self->_params;
 
-    for my $k (keys %$p) {
-        $p->{$k} = Params::Registry::Template->new
-            (%{$p->{$k}}, registry => $self);
+    for my $k (@{$self->_sequence}) {
+        my %t = %{$p->{$k}};
+        if (my $u = delete $t{use}) {
+            $p->{$k} = $p->{$u}->clone;
+            # this will crash because those accessors are RO
+            map { $p->{$k}->$_($t{$_}) } keys %t;
+        }
+        else {
+            $p->{$k} = Params::Registry::Template->new(%t, registry => $self);
+        }
     }
 }
 

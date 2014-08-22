@@ -7,7 +7,7 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
-use Moose::Util::TypeConstraints qw(find_or_create_type_constraint class_type);
+use Moose::Util::TypeConstraints qw(class_type);
 
 use MooseX::Types -declare => [
     qw(Type Template TemplateSet)
@@ -53,7 +53,8 @@ subtype Type, as join('|', qw( MooseX::Types::UndefinedType
 # type whiel u type
 coerce Type, from Str, via {
     my $x = shift;
-    return find_or_create_type_constraint($x) || class_type($x);
+    return Moose::Util::TypeConstraints::find_or_parse_type_constraint($x)
+        || class_type($x);
 };
 # ...that meme will never get old.
 

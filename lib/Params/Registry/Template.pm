@@ -108,8 +108,20 @@ has type => (
 Specifies a composite type to envelop one or more distinct parameter
 values. If a composite type is specified, even single-valued
 parameters will be coerced into that composite type as if it was an
-C<ArrayRef[Item]>. As such, composite types used in this field should
-be specified with coercions that expect C<ArrayRef[Item]>.
+C<ArrayRef>. As such, composite types used in this field should
+be specified with coercions that expect C<ArrayRef>, like so:
+
+    coerce FooBar => from ArrayRef => via { Foo::Bar->new(@{$_[0]}) };
+
+    # ...
+    {
+        name      => 'foo',
+        type      => 'Str',
+        composite => 'FooBar',
+        # ...
+    },
+    # ...
+
 
 =cut
 
@@ -117,7 +129,7 @@ has composite => (
     is      => 'ro',
     isa     => Type,
     lazy    => 1,
-    default => sub { Str },
+    default => sub { ArrayRef },
 );
 
 =item format
@@ -297,7 +309,7 @@ Subsequent values will either be truncated to the right or shifted to
 the left, depending on the value of the L</shift> property. Setting
 this property to 1 will force parameters to be scalar. The default is
 C<undef>, which accepts an unbounded list of values.
-q
+
 =cut
 
 has max => (
@@ -330,11 +342,12 @@ has shift => (
 =item empty
 
 If a parameter value is C<undef> or the empty string, the default
-behaviour is to act like it didn't exist, thus pruning it from the
-resulting data and from the serialization. In the event that an empty
-value is I<meaningful>, such as in expressing a range unbounded on one
-side, this bit can be set, and the L</default> can be set to either
-C<undef> or the empty string (or anything else).
+behaviour is to act like it didn't exist in the input, thus pruning it
+from the resulting data and from the serialization. In the event that
+an empty value for a given parameter is I<meaningful>, such as in
+expressing a range unbounded on one side, this bit can be set, and the
+L</default> can be set to either C<undef> or the empty string (or
+anything else).
 
 =cut
 
@@ -378,6 +391,10 @@ compatible with the parameter instance.
 has universe => (
     is  => 'ro',
     isa => CodeRef,
+);
+
+has _unicache => (
+    is => 'rw',
 );
 
 =item complement
@@ -442,6 +459,11 @@ has reverse => (
     lazy    => 1,
     default => 0,
 );
+
+sub BUILD {
+    my $self = shift;
+    warn $self->type->name;
+}
 
 =back
 
