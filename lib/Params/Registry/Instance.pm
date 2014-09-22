@@ -34,7 +34,7 @@ has _content => (
     lazy     => 1,
     default  => sub { {} },
     handles  => {
-        
+        get => 'get',
     },
 );
 
@@ -65,13 +65,43 @@ sub _process {
 
     my $r = $self->_registry;
     my $c = $self->_content;
+    my $o = $self->_other;
+
+
+    my @seq = $r->sequence;
+
+    my %out;
+
+    # step 1 remove special 'complement' parameter
+    #my $com = delete $query->{$r->complement};
+
+    # check if required parameters are present in the input
+    # maybe want to do this last after the cascades have been performed?
+    for my $k (grep { $r->template($_)->min > 0 } @seq) {
+    }
 
     # have to do depends/conflicts/consumes
     # consumes implies depends and conflicts
 
+    # first we process what we were given as input
+
     while (my ($k, $v) = each %$query) {
-        $self->set($k, $v);
+        $v = [$v] unless ref $v;
+
+        if (my $t = $r->template($k)) {
+            # XXX this can croak
+            $out{$k} = $t->process(@$v);
+        }
+        else {
+            # set 'other' parameters
+        }
     }
+
+    #warn Data::Dumper::Dumper(\%out);
+
+    # then we try to figure out if it was any good
+
+    $self;
 }
 
 =head1 SYNOPSIS
@@ -87,7 +117,7 @@ sub _process {
     # The instance is created through Params::Registry, which will
     # raise different exceptions for different types of conflict in
     # the parameters.
-    my $instance = eval { $registry->process($uri->query_param) };
+    my $instance = eval { $registry->process($uri->query_form_hash) };
 
     # Contents have already been coerced
     my $thingy = $instance->get($key);
@@ -110,9 +140,10 @@ sub _process {
 
 =cut
 
-sub get {
-    my ($self, $key) = @_;
-}
+# sub get {
+#     my ($self, $key) = @_;
+#     return $self->_
+# }
 
 =head2 set $KEY, @VALS
 
@@ -162,7 +193,7 @@ sub group {
     my @list = @{$self->_registry->_groups->{$key} || []};
     my $c = $self->_content;
     for my $k (@list) {
-        # XXX ACTUALLY CLONE THESE
+        # XXX ACTUALLY CLONE THESE (MAYBE)
 
         # use exists, not defined
         $out{$k} = $c->{$k} if exists $c->{$k};
@@ -206,8 +237,18 @@ Generates the canonical URI query string according to the template.
 
 sub as_string {
     my $self = shift;
-    my @seq = $self->_registry->sequence;
+    my $r = $self->_registry;
+    my @seq = $r->sequence;
 
+    my @out;
+    for my $k (@seq) {
+        my $t = $r->template($k);
+        my $v = $self->get($k);
+        warn Data::Dumper::Dumper($v);
+        my $obj = $t->unprocess($v);
+        next unless defined $obj;
+        #warn Data::Dumper::Dumper($obj);
+    }
 }
 
 =head2 make_uri $URI

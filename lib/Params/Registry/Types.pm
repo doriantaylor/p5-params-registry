@@ -10,10 +10,10 @@ use namespace::autoclean;
 use Moose::Util::TypeConstraints qw(class_type);
 
 use MooseX::Types -declare => [
-    qw(Type Template TemplateSet)
+    qw(Type Template TemplateSet Dependency)
 ];
 
-use MooseX::Types::Moose qw(Str ClassName RoleName HashRef);
+use MooseX::Types::Moose qw(Str ClassName RoleName ArrayRef HashRef);
 
 =head1 NAME
 
@@ -58,9 +58,17 @@ coerce Type, from Str, via {
 };
 # ...that meme will never get old.
 
+=head2 Dependency
+
+=cut
+
+subtype Dependency, as HashRef;
+
+coerce Dependency, from ArrayRef, via { return { map { $_ => 1 } @{$_[0]} } };
 
 =head2 Template
 
+This might not be used currently, i don't remember
 
 =cut
 

@@ -159,7 +159,7 @@ around BUILDARGS => sub {
     my @entries = @{delete $p{params}};
     $p{params} = {};
 
-    # instantiate the templates
+    # pass once to separate the templates from their sequence
     my (@seq, %map);
     for my $entry (@entries) {
         my $name = delete $entry->{name};
@@ -168,18 +168,18 @@ around BUILDARGS => sub {
             # TODO: recursive
             $map{$name} = $use;
         }
-        else {
-            # TODO: raise exception on duplicate key
-            $p{params}{$name} = $entry;
-        }
+        # TODO: throw a proper error on duplicate key
+        die if exists $p{params}{$name};
+        $p{params}{$name} = $entry;
     }
 
-    # now stitch the reused params together
+    # second pass to stitch the reused parameters together
     while (my ($k, $v) = each %map) {
         # TODO throw a proper error if the target isn't found
         my $p = $p{params}{$v} or die;
 
-        $p{params}{$k} = $p;
+        # overwrite with any new data
+        $p{params}{$k} = {%$p, %{$p{params}{$k}}};
     }
 
     # add param sequence to BUILD
@@ -192,17 +192,46 @@ sub BUILD {
     my $self = shift;
     my $p = $self->_params;
 
-    for my $k (@{$self->_sequence}) {
+    my @seq = @{$self->_sequence};
+    my (%rank, @stack);
+    for my $k (@seq) {
         my %t = %{$p->{$k}};
-        if (my $u = delete $t{use}) {
-            $p->{$k} = $p->{$u}->clone;
-            # this will crash because those accessors are RO
-            map { $p->{$k}->$_($t{$_}) } keys %t;
+        my $x = $p->{$k} = Params::Registry::Template->new
+            (%t, registry => $self);
+        if ($x->consumes > 0) {
+            $rank{$k} = 1;
+            push @stack, $k;
         }
         else {
-            $p->{$k} = Params::Registry::Template->new(%t, registry => $self);
+            $rank{$k} = 0;
         }
     }
+
+    # construct a rank tree
+
+    my %seen;
+    while (my $x = shift @stack) {
+        #my %c = map { $_ => 1 } $p->{$x}->consumes;
+        my $match = 0;
+        for my $c ($p->{$x}->consumes) {
+            $match = 1 if $rank{$x} == $rank{$c};
+            Carp::croak("Cycle detected between $x and $c")
+                  if $rank{$x} < $rank{$c};
+        }
+
+        if ($match) {
+            $rank{$x}++;
+            push @stack, $x;
+        }
+    }
+
+    my $r = $self->_ranked;
+    for my $k (@seq) {
+        my $x = $r->[$rank{$k}] ||= [];
+        push @$x, $k;
+    }
+
+    warn Data::Dumper::Dumper($self->_ranked);
 }
 
 has _params => (
@@ -226,6 +255,18 @@ has _sequence => (
     handles  => {
         sequence => 'elements',
     },
+);
+
+has _ranked => (
+    is       => 'ro',
+#    traits   => [qw(Array)],
+    isa      => ArrayRef[ArrayRef[Str]],
+    lazy     => 1,
+    default  => sub { [] },
+#    required => 1,
+#    handles  => {
+#        sequence => 'elements',
+#    },
 );
 
 =item groups
