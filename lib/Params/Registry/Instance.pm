@@ -67,37 +67,80 @@ sub _process {
     my $c = $self->_content;
     my $o = $self->_other;
 
-
     my @seq = $r->sequence;
 
-    my %out;
+    my (%out, %del);
 
     # step 1 remove special 'complement' parameter
-    #my $com = delete $query->{$r->complement};
+    my $com = delete $query->{$r->complement};
+
+    # handle 'other' parameters
+    #    map { $o->{$_} = } grep { ! } @seq;
+
+    # go through the ranked list
+    for my $list (@{$r->_ranked}) {
+        # go through each parameter in the rank
+        for my $p (@$list) {
+            my $t = $r->template($p);
+            if (exists $query->{$p}) {
+                # get the value and make sure it's an arrayref
+                my $v = $query->{$p};
+                $v = [$v] unless ref $v;
+
+                # process the value against the template; this may croak
+                $out{$p} = $t->process(@$v);
+
+                # remove any subparameters if explicitly overridden
+                map { $del{$_}++ } $t->consumes;
+            }
+            elsif ($t->consumes > 0) {
+                #warn join ' ', $p, $t->consumes;
+                warn $t->consumes == grep { exists $out{$_} } $t->consumes;
+                next unless
+                    $t->consumes == grep { exists $out{$_} } $t->consumes;
+
+
+                # remember this should already be sorted
+                $out{$p} = $t->consumer->(@out{$t->consumes});
+                map { $del{$_}++ } $t->consumes;
+            }
+            elsif (my $d = $t->default) {
+                $out{$p} = $d->();
+            }
+            else {
+                # noop
+            }
+        }
+    }
+
+    # now remove from out
+    map { delete $out{$_} } keys %del;
 
     # check if required parameters are present in the input
     # maybe want to do this last after the cascades have been performed?
-    for my $k (grep { $r->template($_)->min > 0 } @seq) {
-    }
+    # for my $k (grep { $r->template($_)->min > 0 } @seq) {
+    # }
 
     # have to do depends/conflicts/consumes
     # consumes implies depends and conflicts
 
     # first we process what we were given as input
 
-    while (my ($k, $v) = each %$query) {
-        $v = [$v] unless ref $v;
+    # while (my ($k, $v) = each %$query) {
+    #     $v = [$v] unless ref $v;
 
-        if (my $t = $r->template($k)) {
-            # XXX this can croak
-            $out{$k} = $t->process(@$v);
-        }
-        else {
-            # set 'other' parameters
-        }
-    }
+    #     if (my $t = $r->template($k)) {
+    #         # XXX this can croak
+    #         $out{$k} = $t->process(@$v);
+    #     }
+    #     else {
+    #         # set 'other' parameters
+    #         $o->{$k} = $v;
+    #     }
+    # }
 
     #warn Data::Dumper::Dumper(\%out);
+    %{$self->_content} = %out;
 
     # then we try to figure out if it was any good
 
@@ -145,23 +188,30 @@ sub _process {
 #     return $self->_
 # }
 
-=head2 set $KEY, @VALS
+=head2 set \%PARAMS | $KEY, $VAL [, $KEY2, \@VALS2 ...]
 
-Modifies one of the parameters in the instance. Attempts to coerce the
-input according to the template. Accepts either a literal, an C<ARRAY>
-reference of literals, or the target datatype. Returns the I<old> value
+Modifies one or more of the parameters in the instance. Attempts to
+coerce the input according to the template. Accepts, as values, either
+a literal, an C<ARRAY> reference of literals, or the target datatype.
+If a <Params::Registry::Template/composite> is specified for a given
+key, C<ARRAY> references will be coerced into the appropriate
+composite datatype.
 
-This method will throw an exception if the input can't be reconciled
-with the L<Params::Registry::Template> (i.e., if the input falls
-outside the lexical or semantic constraints).
+Syntax, semantics, cardinality, dependencies and conflicts are all
+observed, but cascading is I<not>. This method will throw an exception
+if the input can't be reconciled with the L<Params::Registry> that
+generated the instance.
 
 =cut
 
 sub set {
     my ($self, $key, @vals) = @_;
+    return;
+
     @vals = @{$vals[0]} if @vals == 1 and ref $vals[0] eq 'ARRAY';
 
     my $content  = $self->_content;
+
     my $template = $self->_registry->template($key);
 
     if ($template) {
@@ -222,9 +272,7 @@ sub clone {
         _content => \%orig,
     );
 
-    for my $k (keys %p) {
-        $out->set($k, $p{$k});
-    }
+    $out->set(\%p);
 
     $out;
 }
@@ -244,11 +292,14 @@ sub as_string {
     for my $k (@seq) {
         my $t = $r->template($k);
         my $v = $self->get($k);
-        warn Data::Dumper::Dumper($v);
+        #warn Data::Dumper::Dumper($v);
         my $obj = $t->unprocess($v);
         next unless defined $obj;
         #warn Data::Dumper::Dumper($obj);
+        push @out, [$k, $obj];
     }
+
+    return join '&', map { my $x = $_->[0]; map { "$x=$_" } @{$_->[1]} } @out;
 }
 
 =head2 make_uri $URI

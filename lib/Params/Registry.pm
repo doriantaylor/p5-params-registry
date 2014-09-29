@@ -215,6 +215,7 @@ sub BUILD {
         my $match = 0;
         for my $c ($p->{$x}->consumes) {
             $match = 1 if $rank{$x} == $rank{$c};
+            # XXX will this actually catch all cycles?
             Carp::croak("Cycle detected between $x and $c")
                   if $rank{$x} < $rank{$c};
         }
@@ -225,13 +226,31 @@ sub BUILD {
         }
     }
 
+    # this makes an array of arrays of key names, in the order to be
+    # processed.
     my $r = $self->_ranked;
     for my $k (@seq) {
         my $x = $r->[$rank{$k}] ||= [];
         push @$x, $k;
     }
+    # note that any global sequence here would be valid as long as it
+    # didn't put a consuming param before one to be consumed
 
-    warn Data::Dumper::Dumper($self->_ranked);
+    # XXX it is currently unclear whether two consuming parameters can
+    # consume the same parameter.
+
+    # we should also do deps and conflicts here:
+
+    # deps are transitive but asymmetric; A -> B -> C implies A -> C
+    # but says nothing about C
+
+    # conflicts are symmetric: A conflicts with B means B conflicts
+    # with A.
+
+    # it is nonsensical (and therefore illegal) for parameters to
+    # simultaneously depend and conflict.
+
+    #warn Data::Dumper::Dumper($self->_ranked);
 }
 
 has _params => (

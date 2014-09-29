@@ -7,7 +7,7 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
-use Params::Registry::Types qw(Type Dependency);
+use Params::Registry::Types qw(Type Dependency Format);
 use MooseX::Types::Moose    qw(Maybe Bool Int Str ArrayRef CodeRef);
 
 =head1 NAME
@@ -141,9 +141,10 @@ values ought to be serialized. The default value is C<%s>.
 
 has format => (
     is      => 'ro',
-    isa     => Str|CodeRef,
+    isa     => Format,
     lazy    => 1,
-    default => '%s',
+    coerce  => 1,
+    default => sub { sub { sprintf '%s', shift } },
 );
 
 =item depends
@@ -515,6 +516,7 @@ sub process {
     my $e  = $self->empty;
     my $ac = $t->coercion;
     for my $i (0..$#values) {
+
         if ($e && (!defined $values[$i] or $values[$i] eq '')) {
             undef $values[$i];
             next;
@@ -523,11 +525,13 @@ sub process {
         if ($ac) {
             # coerce
             #warn defined $values[$i];
-            $values[$i] = $ac->coerce($values[$i]);
+            $values[$i] = $ac->coerce($values[$i]) if defined $values[$i];
         }
 
         # XXX proper error
-        Carp::croak('lol fail') unless $t->check($values[$i]);
+        if (defined $values[$i]) {
+            Carp::croak('lol fail') unless $t->check($values[$i]);
+        }
     }
 
     if (my $c = $self->composite) {
@@ -552,7 +556,10 @@ sub unprocess {
 
     # take care of empty property
     unless (defined $obj) {
-#        return [''] if $self->empty;
+        if ($self->empty) {
+            return [''] if $self->max == 1;
+            return [] if $self->max > 1;
+        }
         return;
     }
 
@@ -568,9 +575,13 @@ sub unprocess {
 
     # format values
     my $fmt = $self->format;
-    $fmt = sub { sprintf $fmt, shift } unless ref $fmt;
+    # XXX this should really be done once 
+    #unless (ref $fmt eq 'CODE') {
+    #    my $x = $fmt;
+    #    $fmt = sub { sprintf $x, shift };
+    #}
 
-    my @out = map { $fmt->($_) } @$obj;
+    my @out = map { defined $_ ? $fmt->($_) : '' } @$obj;
     return wantarray ? @out : \@out;
 }
 

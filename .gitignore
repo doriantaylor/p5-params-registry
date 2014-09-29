@@ -1,4 +1,6 @@
 syntax: glob
+inc*
+*META*
 blib*
 Makefile
 Makefile.old

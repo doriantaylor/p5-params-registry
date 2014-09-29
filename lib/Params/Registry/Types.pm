@@ -10,10 +10,10 @@ use namespace::autoclean;
 use Moose::Util::TypeConstraints qw(class_type);
 
 use MooseX::Types -declare => [
-    qw(Type Template TemplateSet Dependency)
+    qw(Type Template TemplateSet Dependency Format)
 ];
 
-use MooseX::Types::Moose qw(Str ClassName RoleName ArrayRef HashRef);
+use MooseX::Types::Moose qw(Str ClassName RoleName ArrayRef HashRef CodeRef);
 
 =head1 NAME
 
@@ -78,7 +78,12 @@ class_type Template, { class => 'Params::Registry::Template' };
 #subtype TemplateSet, as HashRef[HashRef];
 #coerce TemplateSet,
 
-=head2 
+=head2 Format
+
+=cut
+
+subtype Format, as CodeRef;
+coerce Format, from Str, via { my $x = shift; sub { sprintf $x, shift } };
 
 =head1 AUTHOR
 
