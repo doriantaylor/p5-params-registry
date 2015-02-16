@@ -34,7 +34,8 @@ has _content => (
     lazy     => 1,
     default  => sub { {} },
     handles  => {
-        get => 'get',
+        exists => 'exists',
+        get    => 'get',
     },
 );
 
@@ -95,10 +96,9 @@ sub _process {
             }
             elsif ($t->consumes > 0) {
                 #warn join ' ', $p, $t->consumes;
-                warn $t->consumes == grep { exists $out{$_} } $t->consumes;
+                #warn $t->consumes == grep { exists $out{$_} } $t->consumes;
                 next unless
                     $t->consumes == grep { exists $out{$_} } $t->consumes;
-
 
                 # remember this should already be sorted
                 $out{$p} = $t->consumer->(@out{$t->consumes});
@@ -204,28 +204,63 @@ generated the instance.
 
 =cut
 
+# it isn't clear why '_process' should not admit already-parsed
+# values, and why 'set' should not do cascading. they are essentially
+# identical. in fact, we may be able to just get rid of '_process'
+# altogether in favour of 'set'.
+
 sub set {
-    my ($self, $key, @vals) = @_;
-    return;
+    my $self = shift;
 
-    @vals = @{$vals[0]} if @vals == 1 and ref $vals[0] eq 'ARRAY';
+    # first deal with the input
+    my %p = ref $_[0] eq 'HASH' ? %{$_[0]} : @_;
 
-    my $content  = $self->_content;
+    my $r = $self->_registry;
 
-    my $template = $self->_registry->template($key);
-
-    if ($template) {
-        # do content
-        my $obj = $template->process(@vals);
-        $content->{$key} = $obj;
+    # first snag the complemented 
+    my %c;
+    if (my $com = delete $p{$r->complement}) {
+        map { $c{$_} = 1 } @{ref $com eq 'ARRAY' ? $com : [$com]};
     }
-    else {
-        my $other = $self->_other;
-        my $x = $other->{$key};
-        if (@vals == 0 or not defined $vals[0]) {
-            delete $other->{$key};
+
+    for my $list (@{$r->_ranked}) {
+        for my $p (@$list) {
         }
     }
+
+    # we want to go through the sequence just the same, only this time
+    # the values may already be parsed.
+
+    # we will want to check depends/conflicts/consumes both from the
+    # initial instance as well as the parameters being supplied
+
+    # we should probably deal with the complement as well
+
+
+
+
+#sub set {
+#    my ($self, $key, @vals) = @_;
+    return;
+
+    # @vals = @{$vals[0]} if @vals == 1 and ref $vals[0] eq 'ARRAY';
+
+    # my $content  = $self->_content;
+
+    # my $template = $self->_registry->template($key);
+
+    # if ($template) {
+    #     # do content
+    #     my $obj = $template->process(@vals);
+    #     $content->{$key} = $obj;
+    # }
+    # else {
+    #     my $other = $self->_other;
+    #     my $x = $other->{$key};
+    #     if (@vals == 0 or not defined $vals[0]) {
+    #         delete $other->{$key};
+    #     }
+    # }
 }
 
 =head2 group $KEY
@@ -286,10 +321,15 @@ Generates the canonical URI query string according to the template.
 sub as_string {
     my $self = shift;
     my $r = $self->_registry;
-    my @seq = $r->sequence;
 
+    # this just creates [key => \@values], ...
+    my @seq = $r->sequence;
     my @out;
     for my $k (@seq) {
+        # skip unless the parameter is present. this gets around
+        # 'empty'-marked params that we don't actually have.
+        next unless $self->exists($k);
+
         my $t = $r->template($k);
         my $v = $self->get($k);
         #warn Data::Dumper::Dumper($v);
@@ -298,6 +338,12 @@ sub as_string {
         #warn Data::Dumper::Dumper($obj);
         push @out, [$k, $obj];
     }
+
+    # XXX we have to handle complements here
+
+    # for sets/composites, check if displaying '&complement=key' is
+    # shorter than just displaying the contents of the set
+    # (e.g. &key=val&key=val&key=val... it almost certainly will be).
 
     return join '&', map { my $x = $_->[0]; map { "$x=$_" } @{$_->[1]} } @out;
 }
@@ -318,6 +364,9 @@ a link.
 
 sub make_uri {
     my ($self, $uri) = @_;
+    $uri = $uri->clone->canonical;
+    $uri->query($self->as_string);
+    $uri;
 }
 
 =head1 AUTHOR

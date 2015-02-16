@@ -346,6 +346,19 @@ Return a particular template from the registry.
 
 Return the global sequence of parameters for serialization.
 
+=head2 refresh
+
+Refresh the stateful components of the templates
+
+=cut
+
+sub refresh {
+    my $self = shift;
+    for my $template (values %{$self->_params}) {
+        $template->refresh;
+    }
+}
+
 =head1 AUTHOR
 
 Dorian Taylor, C<< <dorian at cpan.org> >>

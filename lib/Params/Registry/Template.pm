@@ -435,10 +435,18 @@ to do the right thing to produce the inverse set.
 
 =cut
 
-has complement => (
-    is  => 'ro',
-    isa => CodeRef,
+has _complement => (
+    is       => 'ro',
+    isa      => CodeRef,
+    init_arg => 'complement',
 );
+
+sub complement {
+    my ($self, $set) = @_;
+    if (my $c = $self->_complement) {
+        $c->($set, $self->_unicache);
+    }
+}
 
 =item unwind
 
@@ -453,12 +461,22 @@ type coercion function. To encourage code reuse, this function is
 applied before L</reverse> despite the ability to reverse the
 resulting list in the function.
 
+The first argument to the subroutine is the template object itself,
+and the second is the value to be unwound. If you don't need any state
+data from the template, consider the following idiom:
+
     {
         # ...
         # assuming Set::Scalar
-        unwind => sub { [sort shift->elements] },
+        unwind => sub { [sort $_[1]->elements] },
         # ...
     }
+
+An optional second return value can be used to indicate that the
+special L<complement|Params::Registry/complement> parameter should be
+set for this parameter. This is applicable, for instance, to the
+complement of a range, which would otherwise be impossible to
+serialize into a string.
 
 =cut
 
@@ -484,6 +502,8 @@ has reverse => (
 
 sub BUILD {
     my $self = shift;
+
+    $self->refresh;
     #warn $self->type->name;
 }
 
@@ -503,7 +523,7 @@ sub process {
 
     # deal with cardinality
     my $max = $self->max;
-    if (@values > $max) {
+    if (defined $max and @values > $max) {
         if ($self->shift) {
             splice @values, -$max, $max;
         }
@@ -541,13 +561,18 @@ sub process {
         }
     }
 
-    return $max == 1 ? $values[0] : \@values;
+    return $values[0] if defined $max && $max == 1;
+
+    return wantarray ? @values : \@values;
 }
 
 
 =head2 unprocess
 
-Apply L</unwind> to get an arrayref, then L</format> to get strings
+Apply L</unwind> to get an arrayref, then L</format> to get strings.
+In list context it will also return the flag from L</unwind>
+indicating that the L<complement|Params::Registry/complement>
+parameter should be set.
 
 =cut
 
@@ -557,17 +582,19 @@ sub unprocess {
     # take care of empty property
     unless (defined $obj) {
         if ($self->empty) {
-            return [''] if $self->max == 1;
-            return [] if $self->max > 1;
+            my $max = $self->max;
+            return [''] if defined $max && $max == 1;
+            return [] if !defined $max or $max > 1;
         }
         return;
     }
 
     # i dunno, should we check these types on the way out?
 
+    my $complement;
     if ($self->composite) {
         if (my $u = $self->unwind) {
-            $obj = $u->($obj);
+            ($obj, $complement) = $u->($self, $obj);
         }
     }
 
@@ -582,7 +609,22 @@ sub unprocess {
     #}
 
     my @out = map { defined $_ ? $fmt->($_) : '' } @$obj;
-    return wantarray ? @out : \@out;
+    return wantarray ? (\@out, $complement) : \@out;
+}
+
+=head2 refresh
+
+Refreshes stateful information like the universal set, if present.
+
+=cut
+
+sub refresh {
+    my $self = shift;
+    if (my $u = $self->universe) {
+        $self->_unicache($u->());
+    }
+
+    1;
 }
 
 =head1 AUTHOR
