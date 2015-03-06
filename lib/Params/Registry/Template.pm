@@ -10,6 +10,8 @@ use namespace::autoclean;
 use Params::Registry::Types qw(Type Dependency Format);
 use MooseX::Types::Moose    qw(Maybe Bool Int Str ArrayRef CodeRef);
 
+with 'Throwable';
+
 =head1 NAME
 
 Params::Registry::Template - Template class for an individual parameter
@@ -176,14 +178,16 @@ not> be seen with this one.
 
 =cut
 
-has conflicts => (
-    is      => 'ro',
-    isa     => Dependency,
-    traits  => [qw(Hash)],
-    coerce  => 1,
-    lazy    => 1,
-    default => sub { {} },
-    handles => {
+has _conflicts => (
+    is       => 'ro',
+    isa      => Dependency,
+    traits   => [qw(Hash)],
+    coerce   => 1,
+    lazy     => 1,
+    init_arg => 'conflicts',
+    default  => sub { {} },
+    handles  => {
+        conflicts      => 'keys',
         conflicts_with => 'get',
         # make these symmetric in the constructor
         _add_conflict  => 'set',
@@ -407,6 +411,8 @@ L<Params::Registry/complement>. The subroutine can, for instance,
 query a database for the full set in question and return a type
 compatible with the parameter instance.
 
+If you specify a universe, you I<must> also specify a L</complement>.
+
 =cut
 
 has universe => (
@@ -433,6 +439,8 @@ to do the right thing to produce the inverse set.
         # ...
     }
 
+This field expects to be used in conjunction with L</universe>.
+
 =cut
 
 has _complement => (
@@ -446,6 +454,10 @@ sub complement {
     if (my $c = $self->_complement) {
         $c->($set, $self->_unicache);
     }
+}
+
+sub has_complement {
+    return !!shift->_complement;
 }
 
 =item unwind
@@ -503,6 +515,10 @@ has reverse => (
 sub BUILD {
     my $self = shift;
 
+    #my ($u, $c) = ($self->universe, $self->_complement);
+    #$self->throw('I have a universe but no complement!') if $u && !$c;
+    #$self->throw('I have a complement but no universe!') if $c && !$u;
+
     $self->refresh;
     #warn $self->type->name;
 }
@@ -557,6 +573,7 @@ sub process {
     if (my $c = $self->composite) {
         # try to coerce into composite
         if (my $cc = $c->coercion) {
+            warn "lol $c";
             return $cc->coerce(\@values);
         }
     }

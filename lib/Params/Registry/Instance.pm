@@ -7,6 +7,8 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
+with 'Throwable';
+
 =head1 NAME
 
 Params::Registry::Instance - An instance of registered parameters
@@ -46,106 +48,9 @@ has _other => (
     lazy     => 1,
     default  => sub { {} },
     handles  => {
-        
     },
 );
 
-# sub BUILD {
-#     my $self = shift;
-# }
-
-sub _process {
-    my ($self, $query) = @_;
-
-    if (my $ref = ref $query) {
-        Carp::croak("query must be a HASH reference") unless $ref eq 'HASH';
-    }
-    else {
-        # is a string
-    }
-
-    my $r = $self->_registry;
-    my $c = $self->_content;
-    my $o = $self->_other;
-
-    my @seq = $r->sequence;
-
-    my (%out, %del);
-
-    # step 1 remove special 'complement' parameter
-    my $com = delete $query->{$r->complement};
-
-    # handle 'other' parameters
-    #    map { $o->{$_} = } grep { ! } @seq;
-
-    # go through the ranked list
-    for my $list (@{$r->_ranked}) {
-        # go through each parameter in the rank
-        for my $p (@$list) {
-            my $t = $r->template($p);
-            if (exists $query->{$p}) {
-                # get the value and make sure it's an arrayref
-                my $v = $query->{$p};
-                $v = [$v] unless ref $v;
-
-                # process the value against the template; this may croak
-                $out{$p} = $t->process(@$v);
-
-                # remove any subparameters if explicitly overridden
-                map { $del{$_}++ } $t->consumes;
-            }
-            elsif ($t->consumes > 0) {
-                #warn join ' ', $p, $t->consumes;
-                #warn $t->consumes == grep { exists $out{$_} } $t->consumes;
-                next unless
-                    $t->consumes == grep { exists $out{$_} } $t->consumes;
-
-                # remember this should already be sorted
-                $out{$p} = $t->consumer->(@out{$t->consumes});
-                map { $del{$_}++ } $t->consumes;
-            }
-            elsif (my $d = $t->default) {
-                $out{$p} = $d->();
-            }
-            else {
-                # noop
-            }
-        }
-    }
-
-    # now remove from out
-    map { delete $out{$_} } keys %del;
-
-    # check if required parameters are present in the input
-    # maybe want to do this last after the cascades have been performed?
-    # for my $k (grep { $r->template($_)->min > 0 } @seq) {
-    # }
-
-    # have to do depends/conflicts/consumes
-    # consumes implies depends and conflicts
-
-    # first we process what we were given as input
-
-    # while (my ($k, $v) = each %$query) {
-    #     $v = [$v] unless ref $v;
-
-    #     if (my $t = $r->template($k)) {
-    #         # XXX this can croak
-    #         $out{$k} = $t->process(@$v);
-    #     }
-    #     else {
-    #         # set 'other' parameters
-    #         $o->{$k} = $v;
-    #     }
-    # }
-
-    #warn Data::Dumper::Dumper(\%out);
-    %{$self->_content} = %out;
-
-    # then we try to figure out if it was any good
-
-    $self;
-}
 
 =head1 SYNOPSIS
 
@@ -209,58 +114,143 @@ generated the instance.
 # identical. in fact, we may be able to just get rid of '_process'
 # altogether in favour of 'set'.
 
+# the difference between 'set' and '_process' is that '_process' runs
+# defaults while 'set' does not, and 'set' compares depends/conflicts
+# with existing content while '_process' has nothing to compare it to.
+
+# * parameters handed to 'set' may already be parsed, or partially
+#   parsed (as in an arrayref of 'type' but not 'composite')
+
+# * dependencies, conflicts, and precursor 'consumes' parameters may
+#   be present in the existing data structure
+
+# * dependencies/conflicts can be cleared by passing in 'undef'; to
+#   deal with 'empty' parameters, pass in an empty arrayref or
+#   arrayref containing only undefs.
+
+# although if the parameters are ranked and inserted ,
+
 sub set {
     my $self = shift;
 
-    # first deal with the input
-    my %p = ref $_[0] eq 'HASH' ? %{$_[0]} : @_;
+    # deal with parameters and metaparameters
+    my (%p, %meta);
+    if (ref $_[0]) {
+        $self->throw('If the first argument is a ref, it has to be a HASH ref')
+            unless ref $_[0] eq 'HASH';
+        # params are their own hashref
+        %p = %{$_[0]};
 
-    my $r = $self->_registry;
+        if (ref $_[1]) {
+            $self->throw('If the first and second arguments are refs, ' .
+                             'they both have to be HASH refs')
+                unless ref $_[1] eq 'HASH';
 
-    # first snag the complemented 
-    my %c;
-    if (my $com = delete $p{$r->complement}) {
-        map { $c{$_} = 1 } @{ref $com eq 'ARRAY' ? $com : [$com]};
+            # metaparams are their own hashref
+            %meta = %{$_[1]};
+        }
+        else {
+            $self->throw('Expected even number of args for metaparameters')
+                unless @_ % 2 == 1; # note: even is actually odd here
+
+            # metaparams are everything after the hashref
+            %meta = @_[1..$#_];
+        }
+    }
+    else {
+        $self->throw('Expected even number of args for metaparameters')
+            unless @_ % 2 == 0; # note: even is actually even here
+
+        # arguments = params
+        %p = @_;
+
+        # pull metaparams out of ordinary params
+        %meta = map { $_ => delete $p{$_} } qw(-defaults);
     }
 
+    # grab the parent object that stores all the configuration data
+    my $r = $self->_registry;
+
+    # create a map of params to complement/negate
+    my %neg;
+    if (my $c = delete $p{$r->complement}) {
+        my $x = ref $c;
+        $self->throw('If complement is a ref, it must be an ARRAY ref')
+            if $x and $x ne 'ARRAY';
+        map { $neg{$_} = 1 } @{$x ? $c : [$c]};
+    }
+
+    # and now for the product
+    my %out = %{$self->_content};
+    my %del;
+    # the registry has already ranked groups of parameters by order of
+    # depends/consumes
     for my $list (@{$r->_ranked}) {
+        # each rank has a list of parameters which are roughly in the
+        # original sequence provided to the registry
         for my $p (@$list) {
+            # retrieve the appropriate template object
+            my $t = $r->template($p);
+
+            if (exists $p{$p}) {
+                # retrieve, condition and process a new piece of input
+                my $v  = $p{$p};
+                my $rv = ref $v;
+                $v = [$v] if !$rv || $rv ne 'ARRAY';
+
+                $out{$p} = $t->process(@$v);
+
+                # any 'consumed' subparameters are necessarily
+                # overridden by the presence of this input data
+                map { $del{$_} = 1 } $t->consumes;
+
+                # deal with conflicts
+                my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
+                $self->throw(sprintf '%s conflicts with %s', $p, join ', ', @x)
+                    if @x;
+            }
+            elsif ($t->consumes > 0) {
+                # we will only try to 'consume' if all the precursor
+                # parameters are present
+                next unless
+                    $t->consumes == grep { exists $out{$_} } $t->consumes;
+
+                # run the consumer code
+                $out{$p} = $t->consumer->(@out{$t->consumes});
+
+                # add the params we just consumed to the delete list
+                map { $del{$_} = 1 } $t->consumes;
+
+                # deal with any conflicts that arose
+                my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
+                $self->throw(sprintf '%s conflicts with %s', $p, join ', ', @x)
+                    if @x;
+            }
+            elsif ($meta{-defaults} and my $d = $t->default) {
+                # add a default value unless there are conflicts
+                my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
+                $out{$p} = $d->() unless @x;
+            }
+            else {
+                # noop
+            }
+
+            # now handle the complement
+            if ($neg{$p} and $t->has_complement) {
+                $out{$p} = $t->complement($out{$p});
+            }
         }
     }
 
-    # we want to go through the sequence just the same, only this time
-    # the values may already be parsed.
+    # we waited to delete the contents all at once in case there were
+    # dependencies
+    map { delete $out{$_} } keys %del;
 
-    # we will want to check depends/conflicts/consumes both from the
-    # initial instance as well as the parameters being supplied
+    # now we replace the content all in one shot
+    %{$self->_content} = %out;
 
-    # we should probably deal with the complement as well
-
-
-
-
-#sub set {
-#    my ($self, $key, @vals) = @_;
-    return;
-
-    # @vals = @{$vals[0]} if @vals == 1 and ref $vals[0] eq 'ARRAY';
-
-    # my $content  = $self->_content;
-
-    # my $template = $self->_registry->template($key);
-
-    # if ($template) {
-    #     # do content
-    #     my $obj = $template->process(@vals);
-    #     $content->{$key} = $obj;
-    # }
-    # else {
-    #     my $other = $self->_other;
-    #     my $x = $other->{$key};
-    #     if (@vals == 0 or not defined $vals[0]) {
-    #         delete $other->{$key};
-    #     }
-    # }
+    # not sure what else to return
+    return $self;
 }
 
 =head2 group $KEY

@@ -15,6 +15,11 @@ use MooseX::Params::Validate ();
 use Params::Registry::Template;
 use Params::Registry::Instance;
 
+use URI;
+use URI::QueryParam;
+
+with 'Throwable';
+
 =head1 NAME
 
 Params::Registry - Housekeeping for sets of named parameters
@@ -333,9 +338,35 @@ L<Params::Registry::Instance>. May croak.
 sub process {
     my $self = shift;
 
+    my $obj;
+    if (ref $_[0]) {
+        if (Scalar::Util::blessed($_[0]) and $_[0]->isa('URI')) {
+            $obj = $_[0]->query_form_hash;
+        }
+        elsif (ref $_[0] eq 'HASH') {
+            $obj = $_[0];
+        }
+        else {
+            $self->throw
+                ('If the argument is a ref, it must be a URI or a HASH ref');
+        }
+    }
+    elsif (@_ == 1 && defined $_[0]) {
+        my $x = $_[0];
+        $x = "?$x" unless $x =~ /^\?/;
+        $obj = URI->new("http://foo/$x")->query_form_hash;
+    }
+    elsif (@_ > 0 && @_ % 2 == 0) {
+        my %x = @_;
+        $obj = \%x;
+    }
+    else {
+        $self->throw('Check your inputs to Params::Registry::process');
+    }
+
     my $instance = Params::Registry::Instance->new(registry => $self);
 
-    $instance->_process(shift);
+    $instance->set($obj, -defaults => 1);
 }
 
 =head2 template $KEY
