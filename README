@@ -90,16 +90,39 @@ DESCRIPTION
 
 METHODS
   new
+    Instantiate a new parameter registry.
+
+   Arguments
     params
+        An "ARRAY" reference of "HASH" references, containing the specs to
+        be passed into Params::Registry::Template objects.
+
     groups
+        A "HASH" reference such that the keys are names of groups, and the
+        values are "ARRAY" references of parameters to include in each
+        group.
+
     complement
         This is the *name* of the special parameter used to indicate which
-        other parameters should have a "complement" in
+        *other* parameters should have a "complement" in
         Params::Registry::Template operation run over them. The default
         name, naturally, is "complement". This parameter will always be
-        added last.
+        added to the query string last.
 
-  process
+  process $STR | $URI | \%PARAMS
+    Turn a URI, query string or "HASH" reference (such as those found in
+    Catalyst or URI::QueryParam) into a Params::Registry::Instance. May
+    croak.
+
+  template $KEY
+    Return a particular template from the registry.
+
+  sequence
+    Return the global sequence of parameters for serialization.
+
+  refresh
+    Refresh the stateful components of the templates
+
 AUTHOR
     Dorian Taylor, "<dorian at cpan.org>"
 
