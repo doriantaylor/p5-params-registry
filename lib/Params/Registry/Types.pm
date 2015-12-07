@@ -7,13 +7,29 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
+use Set::Scalar;
+use Set::Infinite;
+
+use DateTime;
+use DateTime::Span;
+use DateTime::SpanSet;
+
+# for Set::Infinite
+use constant INF     => 100**100**100;
+use constant NEG_INF => 0 - INF;
+
 use Moose::Util::TypeConstraints qw(class_type);
 
 use MooseX::Types -declare => [
-    qw(Type Template TemplateSet Dependency Format)
+    qw(Type Template TemplateSet Dependency Format
+       XSDdate XSDgYearMonth XSDgYear XSDgMonth XSDgDay DateSpan DateSpanSet
+       DateRange Currency Decimal3 XSDBool NumberRange Set IntSet
+       LCToken UCToken TokenSet)
 ];
 
-use MooseX::Types::Moose qw(Str ClassName RoleName ArrayRef HashRef CodeRef);
+use MooseX::Types::Moose
+    qw(Str ClassName RoleName ArrayRef HashRef CodeRef
+       Undef Maybe Bool Num Int Str);
 
 =head1 NAME
 
@@ -84,6 +100,164 @@ class_type Template, { class => 'Params::Registry::Template' };
 
 subtype Format, as CodeRef;
 coerce Format, from Str, via { my $x = shift; sub { sprintf $x, shift } };
+
+=head2 XSDdate
+
+=cut
+
+class_type XSDdate,     { class => 'DateTime' };
+
+sub _make_date {
+    if (@_ == 2) {
+        DateTime->last_day_of_month(year => $_[0], month => $_[1]);
+    }
+    else {
+        DateTime->new(year => $_[0], month => $_[1], day => $_[2]);
+    }
+}
+
+coerce XSDdate, from Str, via { _make_date(split /-+/, $_[0]) };
+
+=head2 XSDgYearMonth
+
+=cut
+
+subtype XSDgYearMonth, as XSDdate;
+
+coerce XSDgYearMonth, from Str, via { _make_date(split(/-/, $_[0], 2)) };
+
+=head2 XSDgYear
+
+=cut
+
+subtype XSDgYear, as Int;
+
+=head2 XSDgMonth
+
+=cut
+
+subtype XSDgMonth, as Int, where { $_[0] > 0 && $_[0] < 13 };
+
+=head2 XSDgDay
+
+=cut
+
+subtype XSDgDay,   as Int, where { $_[0] > 0 && $_[0] < 32 };
+
+=head2 XSDBool
+
+=cut
+
+subtype XSDBool, as Bool;
+coerce XSDBool, from Undef, via { 0 };
+coerce XSDBool, from Str, via { return ($_[0] =~ /(1|true|on|yes)/i) ? 1 : 0 };
+
+=head2 Currency
+
+=cut
+
+subtype Currency, as Num;
+coerce Currency, from Num, via { my $x = int($_[0] * 100); return $x/100 };
+
+=head2 Decimal3
+
+=cut
+
+subtype Decimal3, as Num;
+coerce Decimal3, from Num, via { my $x = int($_[0] * 1000); return $x/1000 };
+
+=head2 UCToken
+
+=cut
+
+subtype UCToken, as Str;
+coerce UCToken, from Str, via { uc shift };
+
+=head2 LCToken
+
+=cut
+
+subtype LCToken, as Str;
+coerce LCToken, from Str, via { lc shift };
+
+=head2 Set
+
+=cut
+
+class_type Set,         { class => 'Set::Scalar' };
+
+=head2 IntSet
+
+=cut
+
+subtype IntSet, as Set;
+coerce IntSet, from ArrayRef[Int], via { Set::Scalar->new(@{$_[0]}) };
+
+=head2 TokenSet
+
+=cut
+
+subtype TokenSet, as Set;
+coerce TokenSet, from ArrayRef[Str], via { Set::Scalar->new(@{$_[0]}) };
+
+=head2 NumberRange
+
+=cut
+
+class_type NumberRange, { class => 'Set::Infinite' };
+
+coerce NumberRange, from ArrayRef[Maybe[Num]], via {
+    my ($s, $e) = @{$_[0]};
+    #warn "hi i'm here";
+    #warn defined $e;
+    #require Data::Dumper;
+    #warn Data::Dumper::Dumper
+    my ($ds, $de) = (defined $s, defined $e);
+    if (!$ds and !$de) {
+        ($s, $e) = (NEG_INF, INF);
+    }
+    elsif (!$ds) {
+        $s = NEG_INF;
+    }
+    elsif (!$de) {
+        $e = INF;
+    }
+    else {
+        ($s, $e) = sort { $a <=> $b } ($s, $e);
+    }
+
+    Set::Infinite->new($s, $e);
+};
+
+=head2 DateRange
+
+=cut
+
+class_type DateSpan, { class => 'DateTime::Span' };
+class_type DateSpanSet, { class => 'DateTime::SpanSet' };
+
+#union DateRange, [DateSpan, DateSpanSet];
+subtype DateRange, as DateSpan|DateSpanSet;
+
+sub _make_date_span {
+    my ($d1, $d2) = @_;
+    $d1 = defined $d1 ? ref $d1 ? $d1 : _make_date(split /-/, $d1) :
+        DateTime::Infinite::Past->new;
+    $d2 = defined $d2 ? ref $d2 ? $d2 : _make_date(split /-/, $d2) :
+        DateTime::Infinite::Future->new;
+
+    my %p;
+    @p{qw(start end)} = sort { $a <=> $b } ($d1, $d2);
+
+    DateTime::Span->from_datetimes(%p);
+}
+
+coerce DateRange, from ArrayRef[Maybe[Str]],
+    via { _make_date_span(@{$_[0]}) };
+
+coerce DateRange, from ArrayRef[Maybe[XSDdate]],
+    via { _make_date_span(@{$_[0]}) };
+
 
 =head1 AUTHOR
 

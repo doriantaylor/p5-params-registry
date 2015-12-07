@@ -7,7 +7,12 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
-with 'Throwable';
+use Params::Registry::Error;
+
+use Scalar::Util ();
+
+use constant INF => 100**100**100;
+use constant NEG_INF => 1 - INF;
 
 =head1 NAME
 
@@ -37,7 +42,8 @@ has _content => (
     default  => sub { {} },
     handles  => {
         exists => 'exists',
-        get    => 'get',
+#        get    => 'get',
+        keys   => 'keys',
     },
 );
 
@@ -86,12 +92,25 @@ has _other => (
 
 =head2 get $KEY
 
+Retrieve an element of the parameter instance.
+
 =cut
 
-# sub get {
-#     my ($self, $key) = @_;
-#     return $self->_
-# }
+sub get {
+    my ($self, $key) = @_;
+    my $content = $self->_content;
+    return $content->{$key} if exists $content->{$key};
+
+    my $t = $self->_registry->template($key);
+    my %c = map { $_ => 1 } $self->keys;
+    my $c = scalar grep { $c{$_} } $t->conflicts;
+
+    if (!$c and my $d = $t->default) {
+        return $d->($t);
+    }
+
+    return;
+}
 
 =head2 set \%PARAMS | $KEY, $VAL [, $KEY2, \@VALS2 ...]
 
@@ -136,30 +155,34 @@ sub set {
     # deal with parameters and metaparameters
     my (%p, %meta);
     if (ref $_[0]) {
-        $self->throw('If the first argument is a ref, it has to be a HASH ref')
-            unless ref $_[0] eq 'HASH';
+        Params::Registry::Error->throw
+              ('If the first argument is a ref, it has to be a HASH ref')
+                  unless ref $_[0] eq 'HASH';
         # params are their own hashref
         %p = %{$_[0]};
 
         if (ref $_[1]) {
-            $self->throw('If the first and second arguments are refs, ' .
-                             'they both have to be HASH refs')
-                unless ref $_[1] eq 'HASH';
+            Params::Registry::Error->throw
+                  ('If the first and second arguments are refs, ' .
+                       'they both have to be HASH refs')
+                      unless ref $_[1] eq 'HASH';
 
             # metaparams are their own hashref
             %meta = %{$_[1]};
         }
         else {
-            $self->throw('Expected even number of args for metaparameters')
-                unless @_ % 2 == 1; # note: even is actually odd here
+            Params::Registry::Error->throw
+                  ('Expected even number of args for metaparameters')
+                      unless @_ % 2 == 1; # note: even is actually odd here
 
             # metaparams are everything after the hashref
             %meta = @_[1..$#_];
         }
     }
     else {
-        $self->throw('Expected even number of args for metaparameters')
-            unless @_ % 2 == 0; # note: even is actually even here
+        Params::Registry::Error->throw
+              ('Expected even number of args for metaparameters')
+                  unless @_ % 2 == 0; # note: even is actually even here
 
         # arguments = params
         %p = @_;
@@ -175,8 +198,9 @@ sub set {
     my %neg;
     if (my $c = delete $p{$r->complement}) {
         my $x = ref $c;
-        $self->throw('If complement is a ref, it must be an ARRAY ref')
-            if $x and $x ne 'ARRAY';
+        Params::Registry::Error->throw
+              ('If complement is a ref, it must be an ARRAY ref')
+                  if $x and $x ne 'ARRAY';
         map { $neg{$_} = 1 } @{$x ? $c : [$c]};
     }
 
@@ -206,8 +230,8 @@ sub set {
 
                 # deal with conflicts
                 my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
-                $self->throw(sprintf '%s conflicts with %s', $p, join ', ', @x)
-                    if @x;
+                Params::Registry::Error->throw
+                      (sprintf '%s conflicts with %s', $p, join ', ', @x) if @x;
             }
             elsif ($t->consumes > 0) {
                 # we will only try to 'consume' if all the precursor
@@ -223,14 +247,14 @@ sub set {
 
                 # deal with any conflicts that arose
                 my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
-                $self->throw(sprintf '%s conflicts with %s', $p, join ', ', @x)
-                    if @x;
+                Params::Registry::Error->throw
+                      (sprintf '%s conflicts with %s', $p, join ', ', @x) if @x;
             }
-            elsif ($meta{-defaults} and my $d = $t->default) {
-                # add a default value unless there are conflicts
-                my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
-                $out{$p} = $d->() unless @x;
-            }
+            # elsif ($meta{-defaults} and my $d = $t->default) {
+            #     # add a default value unless there are conflicts
+            #     my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
+            #     $out{$p} = $d->($t) unless @x;
+            # }
             else {
                 # noop
             }
@@ -300,6 +324,158 @@ sub clone {
     $out->set(\%p);
 
     $out;
+}
+
+=head2 as_where_clause 
+
+Generates a data structure suitable to pass into L<SQL::Abstract>
+(e.g., via L<DBIx::Class>).
+
+=cut
+
+sub _do_span {
+    my ($span, $universe) = @_;
+    my $u = $universe->isa('DateTime::SpanSet') ? $universe->span : $universe;
+    my ($s, $e, $us, $ue) = ($span->start, $span->end, $u->start, $u->end);
+
+    my $sop = $span->start_is_open ? '>' : '>=';
+    my $eop = $span->end_is_open   ? '<' : '<=';
+
+    my %out;
+    if ($s->is_finite and $s > $us) {
+        $out{$sop} = $s;
+    }
+    if ($e->is_finite and $e < $ue) {
+        $out{$eop} = $e;
+    }
+
+    \%out;
+}
+
+# XXX these should really be in the types, no?
+
+my %TYPES = (
+    'Set::Scalar' => sub {
+        # any set coming into this sub will already have been complemented
+        my ($key, $val, $template) = @_;
+
+        # there is nothing to select
+        my $vs = $val->size;
+        return if $vs == 0;
+
+        # there is everything to select
+        my $comp = $template->complement($val);
+        my $cs = $comp->size;
+        return if $cs == 0;
+
+        if ($vs > $cs) {
+            my @e = $comp->elements;
+            return ($key => $cs == 1 ? { '!=' => $e[0] } : { -not_in => \@e });
+        }
+        else {
+            my @e = $val->elements;
+            return ($key => $vs == 1 ? $e[0] : { -in => \@e });
+        }
+    },
+    'Set::Infinite' => sub {
+        my ($key, $val, $template) = @_;
+        return if $val->is_empty;
+
+        my $universe = $template->universe;
+        return if $val->is_span
+            and $val->min <= $universe->min and $val->max >= $universe->max;
+
+        my @ranges;
+        my ($span, $tail) = $val->first;
+        do {
+            my ($min, $mop) = $span->min_a;
+            my ($max, $xop) = $span->max_a;
+
+            my $closed = !($mop || $xop);
+            $mop = $mop ? '>' : '>=';
+            $xop = $xop ? '<' : '<=';
+
+            my %rec;
+            if ($min == NEG_INF and $max == INF) {
+                next;
+            }
+            elsif ($closed and $min > NEG_INF and $max < INF) {
+                $rec{-between} = [$min, $max];
+            }
+            else {
+                $rec{$mop} = $min unless $min == NEG_INF;
+                $rec{$xop} = $max unless $max == INF;
+            }
+
+            push @ranges, \%rec;
+
+            ($span, $tail) = $tail ? $tail->first : ();
+        } while ($span);
+
+        return ($key, $ranges[0]) if @ranges == 1;
+        return ($key, \@ranges) if @ranges;
+    },
+    'DateTime::Span' => sub {
+        my ($key, $val, $template) = @_;
+
+        my $out = _do_span($val, $template->universe);
+        ($key, $out) if $out;
+    },
+    'DateTime::SpanSet' => sub {
+        my ($key, $val, $template) = @_;
+        my $u = $template->universe;
+
+        my @spans;
+        for my $span ($val->as_list) {
+            my $rule = _do_span($span, $u);
+            push @spans, $rule if $rule;
+        }
+        return ($key, $spans[0]) if @spans == 1;
+        return ($key, \@spans) if @spans;
+    },
+    # i don't think we have any of these at the moment
+    'DateTime::Set' => sub {
+    },
+    'ARRAY' => sub {
+        my ($key, $val) = @_;
+        ($key, { -in => [ @$val ] });
+    },
+);
+
+sub as_where_clause {
+    my $self = shift;
+
+    my %out;
+
+    my $r = $self->_registry;
+
+    for my $kin ($self->keys) {
+        my $vin = $self->get($kin);
+
+        my $dispatch;
+        if (my $ref = ref $vin) {
+            unless ($dispatch = $TYPES{$ref}) {
+                if (Scalar::Util::blessed($vin)) {
+                    for my $t (keys %TYPES) {
+                        $dispatch = $TYPES{$t} if $vin->isa($t);
+                    }
+                }
+            }
+        }
+
+        my ($kout, $vout);
+        if ($dispatch) {
+            my $t = $r->template($kin);
+            ($kout, $vout) = $dispatch->($kin, $vin, $t)
+        }
+        else {
+            ($kout, $vout) = ($kin, $vin);
+        }
+
+        $out{$kout} = $vout if defined $kout;
+    }
+
+    wantarray ? %out : \%out;
 }
 
 =head2 as_string

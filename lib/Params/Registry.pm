@@ -14,11 +14,10 @@ use MooseX::Params::Validate ();
 
 use Params::Registry::Template;
 use Params::Registry::Instance;
+use Params::Registry::Error;
 
 use URI;
 use URI::QueryParam;
-
-with 'Throwable';
 
 =head1 NAME
 
@@ -174,14 +173,17 @@ around BUILDARGS => sub {
             $map{$name} = $use;
         }
         # TODO: throw a proper error on duplicate key
-        die if exists $p{params}{$name};
+        Params::Registry::Error->throw
+              ("Parameter $name already exists") if exists $p{params}{$name};
+
         $p{params}{$name} = $entry;
     }
 
     # second pass to stitch the reused parameters together
     while (my ($k, $v) = each %map) {
         # TODO throw a proper error if the target isn't found
-        my $p = $p{params}{$v} or die;
+        my $p = $p{params}{$v} or Params::Registry::Error->throw
+            ("Tried to resolve $v for reuse but couldn't find it");
 
         # overwrite with any new data
         $p{params}{$k} = {%$p, %{$p{params}{$k}}};
@@ -221,8 +223,8 @@ sub BUILD {
         for my $c ($p->{$x}->consumes) {
             $match = 1 if $rank{$x} == $rank{$c};
             # XXX will this actually catch all cycles?
-            Carp::croak("Cycle detected between $x and $c")
-                  if $rank{$x} < $rank{$c};
+            Params::Registry::Error->throw
+                  ("Cycle detected between $x and $c") if $rank{$x} < $rank{$c};
         }
 
         if ($match) {
@@ -347,7 +349,7 @@ sub process {
             $obj = $_[0];
         }
         else {
-            $self->throw
+            Params::Registry::Error->throw
                 ('If the argument is a ref, it must be a URI or a HASH ref');
         }
     }
@@ -361,7 +363,8 @@ sub process {
         $obj = \%x;
     }
     else {
-        $self->throw('Check your inputs to Params::Registry::process');
+        Params::Registry::Error->throw
+              ('Check your inputs to Params::Registry::process');
     }
 
     my $instance = Params::Registry::Instance->new(registry => $self);

@@ -12,6 +12,10 @@ requires 'MooseX::Types'            => '0.35';
 requires 'MooseX::Params::Validate' => '0.18';
 requires 'Throwable'                => '0.200008';
 requires 'URI'                      => '1.60';
+requires 'Set::Scalar'              => '1.25';
+requires 'Set::Infinite'            => '0.63';
+requires 'DateTime'                 => '0.70';
+requires 'DateTime::Set'           => '0.31';
 
 build_requires 'Test::More';
 

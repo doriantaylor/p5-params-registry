@@ -21,6 +21,12 @@ Version 0.01
 
 our $VERSION = '0.01';
 
+package Params::Registry::Error::Syntax;
+
+use Moose;
+use namespace::autoclean;
+
+extends 'Params::Registry::Error';
 
 
 __PACKAGE__->meta->make_immutable;
