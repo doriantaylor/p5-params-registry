@@ -352,7 +352,11 @@ sub _do_span {
     \%out;
 }
 
-# XXX these should really be in the types, no?
+# XXX these should really be embedded in the types, no?
+
+# NOTE: we have these functions return the key along with the clause,
+# because just returning undef could be interpreted by SQL::Abstract
+# as IS NULL, and we don't want that. Unless we actually do want that.
 
 my %TYPES = (
     'Set::Scalar' => sub {
@@ -403,8 +407,8 @@ my %TYPES = (
                 $rec{-between} = [$min, $max];
             }
             else {
-                $rec{$mop} = $min unless $min == NEG_INF;
-                $rec{$xop} = $max unless $max == INF;
+                $rec{$mop} = $min + 0 unless $min == NEG_INF;
+                $rec{$xop} = $max + 0 unless $max == INF;
             }
 
             push @ranges, \%rec;
@@ -444,12 +448,18 @@ my %TYPES = (
 
 sub as_where_clause {
     my $self = shift;
+    my %p = @_;
+
+    my %only = map { $_ => 1 } @{$p{only} || []};
 
     my %out;
 
     my $r = $self->_registry;
 
     for my $kin ($self->keys) {
+        # skip skeep skorrp
+        next if %only && !$only{$kin};
+
         my $vin = $self->get($kin);
 
         my $dispatch;
@@ -466,7 +476,7 @@ sub as_where_clause {
         my ($kout, $vout);
         if ($dispatch) {
             my $t = $r->template($kin);
-            ($kout, $vout) = $dispatch->($kin, $vin, $t)
+            ($kout, $vout) = $dispatch->($kin, $vin, $t);
         }
         else {
             ($kout, $vout) = ($kin, $vin);

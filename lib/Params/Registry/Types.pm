@@ -191,7 +191,8 @@ class_type Set,         { class => 'Set::Scalar' };
 =cut
 
 subtype IntSet, as Set;
-coerce IntSet, from ArrayRef[Int], via { Set::Scalar->new(@{$_[0]}) };
+coerce IntSet, from ArrayRef[Str],
+    via { Set::Scalar->new(map { int $_ } @{$_[0]}) };
 
 =head2 TokenSet
 
@@ -223,7 +224,7 @@ coerce NumberRange, from ArrayRef[Maybe[Num]], via {
         $e = INF;
     }
     else {
-        ($s, $e) = sort { $a <=> $b } ($s, $e);
+        ($s, $e) = sort { $a <=> $b } map { $_ + 0 } ($s, $e);
     }
 
     Set::Infinite->new($s, $e);
