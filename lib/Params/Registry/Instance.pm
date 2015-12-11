@@ -106,7 +106,14 @@ sub get {
     my $c = scalar grep { $c{$_} } $t->conflicts;
 
     if (!$c and my $d = $t->default) {
-        return $d->($t);
+        my $val = $d->($t);
+
+        my $c = $t->composite;
+        if ($c = $c->coercion) {
+            return $c->coerce($val);
+        }
+
+        return $val;
     }
 
     return;
@@ -313,8 +320,16 @@ sub clone {
     my $self = shift;
     my %p = ref $_[0] eq 'HASH' ? %{$_[0]} : @_;
 
+
     # XXX deep copy?
     my %orig = %{$self->_content};
+
+    # sometimes we only want to clone certain params
+    if (defined $p{-only}) {
+        my $o = delete $p{-only};
+        my %only = map { $_ => 1 } (ref $o ? @$o : $o);
+        map { delete $orig{$_} unless $only{$_} } keys %orig if %only;
+    }
 
     my $out = Params::Registry::Instance->new(
         registry => $self->_registry,
@@ -326,7 +341,7 @@ sub clone {
     $out;
 }
 
-=head2 as_where_clause 
+=head2 as_where_clause
 
 Generates a data structure suitable to pass into L<SQL::Abstract>
 (e.g., via L<DBIx::Class>).
