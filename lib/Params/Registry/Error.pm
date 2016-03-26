@@ -28,6 +28,35 @@ use namespace::autoclean;
 
 extends 'Params::Registry::Error';
 
+has value => (
+    is  => 'ro',
+    isa => 'Any',
+);
+
+package Params::Registry::Error::Processing;
+
+use Moose;
+use namespace::autoclean;
+
+extends 'Params::Registry::Error';
+
+has _p => (
+    is       => 'ro',
+    isa      => 'HashRef',
+    traits   => ['Hash'],
+    init_arg => 'parameters',
+    handles  => {
+        get        => 'get',
+        parameters => 'keys',
+        params     => 'keys',
+    },
+);
+
+has message => (
+    is      => 'ro',
+    isa     => 'Str',
+    default => 'One or more parameters has failed to process',
+);
 
 __PACKAGE__->meta->make_immutable;
 

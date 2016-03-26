@@ -10,6 +10,7 @@ use namespace::autoclean;
 use Params::Registry::Error;
 
 use Scalar::Util ();
+use Try::Tiny;
 
 use constant INF => 100**100**100;
 use constant NEG_INF => 1 - INF;
@@ -213,7 +214,7 @@ sub set {
 
     # and now for the product
     my %out = %{$self->_content};
-    my %del;
+    my (%del, %err);
     # the registry has already ranked groups of parameters by order of
     # depends/consumes
     for my $list (@{$r->_ranked}) {
@@ -229,16 +230,24 @@ sub set {
                 my $rv = ref $v;
                 $v = [$v] if !$rv || $rv ne 'ARRAY';
 
-                $out{$p} = $t->process(@$v);
+                try {
+                    my $tmp = $t->process(@$v);
+                    $out{$p} = $tmp if defined $tmp;
+                } catch {
+                    $err{$p} = $_;
+                };
 
                 # any 'consumed' subparameters are necessarily
                 # overridden by the presence of this input data
-                map { $del{$_} = 1 } $t->consumes;
+                unless ($err{$p}) {
+                    map { $del{$_} = 1 } $t->consumes;
 
-                # deal with conflicts
-                my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
-                Params::Registry::Error->throw
-                      (sprintf '%s conflicts with %s', $p, join ', ', @x) if @x;
+                    # deal with conflicts
+                    my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
+                    $err{$p} = Params::Registry::Error->new
+                        (sprintf '%s conflicts with %s', $p, join ', ', @x)
+                            if @x;
+                }
             }
             elsif ($t->consumes > 0) {
                 # we will only try to 'consume' if all the precursor
@@ -247,15 +256,22 @@ sub set {
                     $t->consumes == grep { exists $out{$_} } $t->consumes;
 
                 # run the consumer code
-                $out{$p} = $t->consumer->(@out{$t->consumes});
+                try {
+                    $out{$p} = $t->consumer->(@out{$t->consumes});
+                } catch {
+                    $err{$p} = $_;
+                };
 
-                # add the params we just consumed to the delete list
-                map { $del{$_} = 1 } $t->consumes;
+                unless ($err{$p}) {
+                    # add the params we just consumed to the delete list
+                    map { $del{$_} = 1 } $t->consumes;
 
-                # deal with any conflicts that arose
-                my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
-                Params::Registry::Error->throw
-                      (sprintf '%s conflicts with %s', $p, join ', ', @x) if @x;
+                    # deal with any conflicts that arose
+                    my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
+                    $err{$p} = Params::Registry::Error->throw
+                        (sprintf '%s conflicts with %s', $p, join ', ', @x)
+                            if @x;
+                }
             }
             # elsif ($meta{-defaults} and my $d = $t->default) {
             #     # add a default value unless there are conflicts
@@ -267,11 +283,14 @@ sub set {
             }
 
             # now handle the complement
-            if ($neg{$p} and $t->has_complement) {
+            if (!$err{$p} and $neg{$p} and $t->has_complement) {
                 $out{$p} = $t->complement($out{$p});
             }
         }
     }
+
+    Params::Registry::Error::Processing->throw(parameters => \%err)
+          if keys %err;
 
     # we waited to delete the contents all at once in case there were
     # dependencies
@@ -364,14 +383,16 @@ sub _do_span {
         $out{$eop} = $e;
     }
 
-    \%out;
+    # this can be empty and that screws up sql generation
+    return \%out if keys %out;
 }
 
 # XXX these should really be embedded in the types, no?
 
-# NOTE: we have these functions return the key along with the clause,
-# because just returning undef could be interpreted by SQL::Abstract
-# as IS NULL, and we don't want that. Unless we actually do want that.
+# NOTE: we have these functions return the key along with the clause
+# to signal that there actually *is* a a clause, because just
+# returning undef could be interpreted by SQL::Abstract as IS NULL,
+# and we don't want that. Unless we actually *do* want that.
 
 my %TYPES = (
     'Set::Scalar' => sub {
@@ -438,7 +459,7 @@ my %TYPES = (
         my ($key, $val, $template) = @_;
 
         my $out = _do_span($val, $template->universe);
-        ($key, $out) if $out;
+        return ($key, $out) if $out;
     },
     'DateTime::SpanSet' => sub {
         my ($key, $val, $template) = @_;
@@ -457,7 +478,7 @@ my %TYPES = (
     },
     'ARRAY' => sub {
         my ($key, $val) = @_;
-        ($key, { -in => [ @$val ] });
+        return ($key, { -in => [ @$val ] });
     },
 );
 
@@ -482,7 +503,10 @@ sub as_where_clause {
             unless ($dispatch = $TYPES{$ref}) {
                 if (Scalar::Util::blessed($vin)) {
                     for my $t (keys %TYPES) {
-                        $dispatch = $TYPES{$t} if $vin->isa($t);
+                        if ($vin->isa($t)) {
+                            $dispatch = $TYPES{$t};
+                            last;
+                        }
                     }
                 }
             }
@@ -497,7 +521,7 @@ sub as_where_clause {
             ($kout, $vout) = ($kin, $vin);
         }
 
-        $out{$kout} = $vout if defined $kout;
+        $out{$kout} = $vout if $kout;
     }
 
     wantarray ? %out : \%out;

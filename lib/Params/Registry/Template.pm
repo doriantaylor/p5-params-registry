@@ -543,55 +543,69 @@ construct a composite value.
 =cut
 
 sub process {
-    my ($self, @values) = @_;
+    my ($self, @in) = @_;
 
-    my $t = $self->type;
-
-    # deal with cardinality
-    my $max = $self->max;
-    if (defined $max and @values > $max) {
-        if ($self->shift) {
-            splice @values, -$max, $max;
-        }
-        else {
-            splice @values, 0, $max;
-        }
-    }
-
-    # coerce atomic type
+    my $t  = $self->type;
     my $e  = $self->empty;
     my $ac = $t->coercion;
-    for my $i (0..$#values) {
 
-        if ($e && (!defined $values[$i] or $values[$i] eq '')) {
-            undef $values[$i];
-            next;
+    # filter input
+    my @out;
+    for my $v (@in) {
+        # deal with undef/empty string
+        if (!defined $v or $v eq '') {
+            # do not append to @out unless 'empty' is set
+            next unless $e;
+
+            # normalize to undef
+            undef $v;
         }
 
-        if ($ac) {
-            # coerce
-            #warn defined $values[$i];
-            $values[$i] = $ac->coerce($values[$i]) if defined $values[$i];
+        if (defined $v) {
+            if ($ac) {
+                # coerce atomic type
+                try {
+                    my $tmp = $ac->coerce($v);
+                    $v = $tmp;
+                } catch {
+                    my $err = $_;
+                    Params::Registry::Error::Syntax->throw(
+                        value   => $v,
+                        message => $err,
+                    );
+                };
+            }
+            else {
+                # check resulting value
+                Params::Registry::Error::Syntax->throw(
+                    value   => $v,
+                    message => "Value '$v' is not a $t") unless $t->check($v);
+            }
         }
 
-        # XXX proper error
-        if (defined $values[$i]) {
-            Params::Registry::Error::Syntax->throw("Value is not a $t")
-                  unless $t->check($values[$i]);
-        }
+        push @out, $v;
     }
 
-    if (my $c = $self->composite) {
+    # deal with cardinality
+    if (my $max = $self->max) {
+        # force scalar
+        return $out[0] if $max == 1;
+
+        # force cardinality
+        splice @out, ($self->shift ? -$max : 0), $max if @out > $max;
+    }
+
+    # coerce to composite
+    if (my $comp = $self->composite) {
         # try to coerce into composite
-        if (my $cc = $c->coercion) {
+        if (my $cc = $comp->coercion) {
             #warn "lol $c";
-            return $cc->coerce(\@values);
+            return $cc->coerce(\@out);
         }
     }
 
-    return $values[0] if defined $max && $max == 1;
-
-    return wantarray ? @values : \@values;
+    # otherwise return list of values
+    return wantarray ? @out : \@out;
 }
 
 
