@@ -19,11 +19,11 @@ Params::Registry::Template - Template class for an individual parameter
 
 =head1 VERSION
 
-Version 0.01
+Version 0.03
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.03';
 
 =head1 SYNOPSIS
 
@@ -125,7 +125,6 @@ be specified with coercions that expect C<ArrayRef>, like so:
     },
     # ...
 
-
 =cut
 
 has composite => (
@@ -160,14 +159,16 @@ accompany this one.
 # I know it says ARRAY but the value is more useful as hash keys, so
 # these two attributes get coerced into hashrefs.
 
-has depends => (
+has _depends => (
     is      => 'ro',
     isa     => Dependency,
     traits  => [qw(Hash)],
     coerce  => 1,
     lazy    => 1,
-    default => sub { {} },
+    init_arg => 'depends',
+    default => sub { Params::Registry::Types::ixhash_ref() },
     handles => {
+        depends    => 'keys',
         depends_on => 'get',
     },
 );
@@ -186,7 +187,7 @@ has _conflicts => (
     coerce   => 1,
     lazy     => 1,
     init_arg => 'conflicts',
-    default  => sub { {} },
+    default  => sub { Params::Registry::Types::ixhash_ref() },
     handles  => {
         conflicts      => 'keys',
         conflicts_with => 'get',
@@ -207,31 +208,97 @@ in the input at the same time.
 
 has _consumes => (
     is       => 'ro',
-    isa      => ArrayRef[Str],
-    traits   => [qw(Array)],
+    isa      => Dependency,
+    traits   => [qw(Hash)],
+    coerce   => 1,
     lazy     => 1,
     init_arg => 'consumes',
-    default  => sub { [] },
+    default  => sub { Params::Registry::Types::ixhash_ref() },
     handles  => {
-        consumes => 'elements',
+        consumes  => 'keys',
     },
 );
 
-=item consumer
+# this thing merges 'consumes' and 'depends' together, in order
+sub _consdep {
+    my $self = shift;
 
-For cascading parameters, a C<CODE> reference to operate on the
-consumed parameters in order to produce the desired I<atomic> value.
-To produce a I<composite> parameter value from multiple existing
-I<values>, define a coercion from C<ArrayRef> to the type supplied
-to the L</composite> property.
+    my @out = $self->consumes;
 
-The default consumer function, therefore, simply returns an C<ARRAY>
-reference that collates the values from the parameters defined in
-the L</consumes> property.
+    # tack this on but only if there is a preprocessor present
+    if ($self->preproc) {
+        my $c = $self->_consumes;
+        # ordered union of 'consumes' and 'depends'
+        push @out, grep { !$c->{$_} } $self->depends;
+    }
 
-Once again, this functionality exists primarily for the purpose of
-interfacing with HTML forms that lack the latest features. Consider
-the following example:
+    @out;
+}
+
+# change to 'preprocessor'
+
+# the purpose of the preprocessor is to coalesce values from multiple
+# parameters before handing them off to the template processor
+
+# these include the columns listed under 'depends' and 'consumes', the
+# difference between the two being that the former remain in the
+# resulting master data structure while the latter are removed.
+
+# the preprocessor function should therefore expect a list of array
+# refs: (should it? the dependencies will already have been processed)
+
+# change behaviour of 'depends' so that it can be cyclic *unless*
+# there is a preprocessor defined
+
+# this means the default has to be undef, so any code that uses the
+# default value has to be changed
+
+=item preproc
+
+Supply a C<CODE> reference to a function which coalesces values from
+the parameter in context (which may be empty) with other parameters
+specified by L</consumes> and L</depends>. The function is expected to
+return a result which can be handled by L</process>: either the
+appropriate L</composite> type (resulting in a no-op) or a list of
+valid primitives. The function is handed the following arguments:
+
+=over 4
+
+=item C<$self>
+
+The L<Params::Registry::Template> instance, to give the function
+(really a pseudo-method) access to its members.
+
+=item current raw value
+
+This will be an ARRAY reference containing zero or more elements, I<as
+supplied> to the input. It will B<not> be processed.
+
+=item other parameters
+
+All subsequent arguments to the L</preproc> function will represent
+the set union of L</consumes> and L</depends>. It will follow the
+sequence of keys specified in L</consumes> followed by the sequence in
+L</depends> B<minus> those which already appear in L</consumes>.
+
+It is important to note that I<these values will already have been
+processed>, so they will be whatever (potentially L</composite>) type
+you specify. Make sure you author this function with this expectation.
+
+=back
+
+The result(s) of L</preproc> will be collected into an array and fed
+into L</process>. Use L</depends> rather than L</consumes> to supply
+other parameters without removing them from the resulting structure.
+Note that when L</depends> ihjks used in conjunction with L</preproc>,
+the dependencies I<must> be acyclic.
+
+L</preproc> is called either just before L</process> over supplied
+data, or in lieu of it.
+
+Here is an example of L</preproc> used to compose a set of parameters
+containing integers (e.g., from a legacy HTML form) into a L<DateTime>
+object:
 
     # ...
     {
@@ -264,34 +331,105 @@ the following example:
         consumes => [qw(year month day)],
 
         # and this is how it will happen:
-        consumer => sub {
+        preproc => sub {
+            my (undef, undef, $y, $m, $d) = @_;
             DateTime->new(
-                year  => $_[0],
-                month => $_[1],
-                day   => $_[2],
+                year  => $y,
+                month => $m,
+                day   => $d,
             );
         },
     },
     # ...
 
-Here, we may have a form which contains a C<date> field for the newest
-browsers that support the new form control, or otherwise generated via
-JavaScript. As a fallback mechanism (e.g. for an older browser, robot,
-or paranoid person), form fields for the C<year>, C<month>, and C<day>
-can also be specified in the markup, and used to generate C<date>.
-
 =cut
 
-sub _default_consume {
-    [@_];
-}
-
-has consumer => (
+has preproc => (
     is      => 'ro',
     isa     => CodeRef,
-    lazy    => 1,
-    default => sub { \&_default_consume },
 );
+
+# =item prefmt
+#
+# This element is the dual to L</preproc>.
+#
+# =cut
+
+# =item consumer
+
+# For cascading parameters, a C<CODE> reference to operate on the
+# consumed parameters in order to produce the desired I<atomic> value.
+# To produce a I<composite> parameter value from multiple existing
+# I<values>, define a coercion from C<ArrayRef> to the type supplied
+# to the L</composite> property.
+
+# The default consumer function, therefore, simply returns an C<ARRAY>
+# reference that collates the values from the parameters defined in
+# the L</consumes> property.
+
+# Once again, this functionality exists primarily for the purpose of
+# interfacing with HTML forms that lack the latest features. Consider
+# the following example:
+
+#     # ...
+#     {
+#         name => 'year',
+#         type => 'Int',
+#         max  => 1,
+#     },
+#     {
+#         name => 'month',
+#         type => 'Int',
+#         max  => 1,
+#     },
+#     {
+#         name => 'day',
+#         type => 'Int',
+#         max  => 1,
+#     },
+#     {
+#         name => 'date',
+
+#         # this would be defined elsewhere with coercion from a
+#         # string that matches 'YYYY-MM-DD', for direct input.
+#         type => 'MyDateTimeType',
+
+#         # we don't want multiple values for this parameter.
+#         max  => 1,
+
+#         # in lieu of being explicitly defined in the input, this
+#         # parameter will be constructed from the following:
+#         consumes => [qw(year month day)],
+
+#         # and this is how it will happen:
+#         consumer => sub {
+#             DateTime->new(
+#                 year  => $_[0],
+#                 month => $_[1],
+#                 day   => $_[2],
+#             );
+#         },
+#     },
+#     # ...
+
+# Here, we may have a form which contains a C<date> field for the newest
+# browsers that support the new form control, or otherwise generated via
+# JavaScript. As a fallback mechanism (e.g. for an older browser, robot,
+# or paranoid person), form fields for the C<year>, C<month>, and C<day>
+# can also be specified in the markup, and used to generate C<date>.
+
+# =cut
+
+# sub _default_consume {
+#     [@_];
+# }
+
+# has consumer => (
+#     is      => 'ro',
+#     isa     => CodeRef,
+#     lazy    => 1,
+#     default => sub { \&_default_consume },
+# );
 
 # =item cardinality
 
@@ -470,26 +608,38 @@ sub has_complement {
     return !!shift->_complement;
 }
 
+# XXX what is this bullshit about an unblessed hashref?
+
+# ... C<ARRAY> reference of scalars, or an I<unblessed> C<HASH>
+# reference containing valid parameter keys to either scalars or
+# C<ARRAY> references of scalars. In the case the subroutine returns a
+# C<HASH> reference, the registry will replace the parameter in
+# context with the parameters supplied, effectively performing the
+# inverse of a composite type coercion function.
+
 =item unwind
 
 For composite object parameters, specify a C<CODE> reference to a
-subroutine which will turn the object into either a scalar, an
-C<ARRAY> reference of scalars, or an I<unblessed> C<HASH> reference
-containing valid parameter keys to either scalars or C<ARRAY>
-references of scalars. In the case the subroutine returns a C<HASH>
-reference, the registry will replace the parameter in context with the
-parameters supplied, effectively performing the inverse of a composite
-type coercion function. To encourage code reuse, this function is
-applied before L</reverse> despite the ability to reverse the
-resulting list in the function.
+subroutine which will turn the object into either a scalar or an
+C<ARRAY> reference of scalars. To encourage code reuse, this function
+is applied before L</reverse> despite the obvious ability to reverse
+the resulting list within the function.
 
 The first argument to the subroutine is the template object itself,
-and the second is the value to be unwound. If you don't need any state
-data from the template, consider the following idiom:
+and the second is the value to be unwound. Subsequent arguments are
+the values of the parameters specified in L</depends>, if present.
+
+    sub my_unwind {
+        my ($self, $obj, @depends) = @_;
+        # ...
+    }
+
+If you don't need any state data from the template, consider the
+following idiom:
 
     {
         # ...
-        # assuming Set::Scalar
+        # assuming the object is a Set::Scalar
         unwind => sub { [sort $_[1]->elements] },
         # ...
     }
@@ -535,10 +685,10 @@ sub BUILD {
 
 =back
 
-=head2 process
+=head2 process @VALS
 
-Validate a set of individual parameter values and (optionally)
-construct a composite value.
+Validate a list of individual parameter values and (optionally)
+construct a L</composite> value.
 
 =cut
 
@@ -609,17 +759,22 @@ sub process {
 }
 
 
-=head2 unprocess
+=head2 unprocess $OBJ, @REST
 
-Apply L</unwind> to get an arrayref, then L</format> to get strings.
-In list context it will also return the flag from L</unwind>
-indicating that the L<complement|Params::Registry/complement>
-parameter should be set.
+Applies L</unwind> to C<$OBJ> to get an C<ARRAY> reference, then
+L</format> over each of the elements to get strings. In list context
+it will also return the flag from L</unwind> indicating that the
+L<complement|Params::Registry/complement> parameter should be set.
+
+This method is called by L<Params::Registry::Instance/as_string> and
+others to produce content which is amenable to serialization. As what
+happens there, the content of C<@REST> should be the values of the
+parameters specified in L</depends>.
 
 =cut
 
 sub unprocess {
-    my ($self, $obj) = @_;
+    my ($self, $obj, @rest) = @_;
 
     # take care of empty property
     unless (defined $obj) {
@@ -685,7 +840,17 @@ Dorian Taylor, C<< <dorian at cpan.org> >>
 
 =head1 SEE ALSO
 
+=over 4
+
+=item
+
 L<Params::Registry>
+
+=item
+
+L<Params::Registry::Instance>
+
+=back
 
 =head1 LICENSE AND COPYRIGHT
 

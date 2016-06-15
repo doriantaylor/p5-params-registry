@@ -207,7 +207,7 @@ sub set {
     if (my $c = delete $p{$r->complement}) {
         my $x = ref $c;
         Params::Registry::Error->throw
-              ('If complement is a ref, it must be an ARRAY ref')
+              ('If complement is a reference, it must be an ARRAY reference')
                   if $x and $x ne 'ARRAY';
         map { $neg{$_} = 1 } @{$x ? $c : [$c]};
     }
@@ -224,63 +224,55 @@ sub set {
             # retrieve the appropriate template object
             my $t = $r->template($p);
 
+            # normalize input value(s) if present
+            my @v;
             if (exists $p{$p}) {
-                # retrieve, condition and process a new piece of input
-                my $v  = $p{$p};
+                my $v = $p{$p};
                 my $rv = ref $v;
                 $v = [$v] if !$rv || $rv ne 'ARRAY';
+                @v = @$v;
+            }
 
+            # run the preprocessor
+            my @deps = $t->_consdep;
+            if (my $pp = $t->preproc
+                    and @deps == grep { exists $out{$_} } @deps) {
                 try {
-                    my $tmp = $t->process(@$v);
+                    # apply the preprocessor
+                    @v = $pp->($t, \@v, @out{@deps});
+
+                    # get rid of consumed parameters
+                    map { $del{$_} = 1 } $t->consumes;
+                } catch {
+                    $err{$p} = $_;
+                };
+            }
+
+            # now we run the main parameter template processor
+            if (!$err{$p} and @v > 0) {
+                try {
+                    my $tmp = $t->process(@v);
                     $out{$p} = $tmp if defined $tmp;
                 } catch {
                     $err{$p} = $_;
                 };
-
-                # any 'consumed' subparameters are necessarily
-                # overridden by the presence of this input data
-                unless ($err{$p}) {
-                    map { $del{$_} = 1 } $t->consumes;
-
-                    # deal with conflicts
-                    my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
-                    $err{$p} = Params::Registry::Error->new
-                        (sprintf '%s conflicts with %s', $p, join ', ', @x)
-                            if @x;
-                }
             }
-            elsif ($t->consumes > 0) {
-                # we will only try to 'consume' if all the precursor
-                # parameters are present
-                next unless
-                    $t->consumes == grep { exists $out{$_} } $t->consumes;
 
-                # run the consumer code
-                try {
-                    $out{$p} = $t->consumer->(@out{$t->consumes});
-                } catch {
-                    $err{$p} = $_;
-                };
-
-                unless ($err{$p}) {
-                    # add the params we just consumed to the delete list
-                    map { $del{$_} = 1 } $t->consumes;
-
-                    # deal with any conflicts that arose
-                    my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
-                    $err{$p} = Params::Registry::Error->throw
-                        (sprintf '%s conflicts with %s', $p, join ', ', @x)
-                            if @x;
-                }
+            # now we test for conflicts
+            unless ($err{$p}) {
+                my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
+                $err{$p} = Params::Registry::Error->new
+                    (sprintf '%s conflicts with %s', $p, join ', ', @x) if @x;
             }
+
+
+            # XXX what was the problem with this? 2016-05-30
+
             # elsif ($meta{-defaults} and my $d = $t->default) {
             #     # add a default value unless there are conflicts
             #     my @x = grep { $out{$_} && !$del{$_} } $t->conflicts;
             #     $out{$p} = $d->($t) unless @x;
             # }
-            else {
-                # noop
-            }
 
             # now handle the complement
             if (!$err{$p} and $neg{$p} and $t->has_complement) {
@@ -538,19 +530,25 @@ sub as_string {
     my $r = $self->_registry;
 
     # this just creates [key => \@values], ...
-    my @seq = $r->sequence;
-    my @out;
-    for my $k (@seq) {
+    my (@out, %comp);
+    for my $k ($r->sequence) {
         # skip unless the parameter is present. this gets around
         # 'empty'-marked params that we don't actually have.
         next unless $self->exists($k);
 
         my $t = $r->template($k);
         my $v = $self->get($k);
-        #warn Data::Dumper::Dumper($v);
-        my $obj = $t->unprocess($v);
+
+        # get dependencies
+        my @dep = map { $self->get($_) } $t->depends;
+
+        # retrieve un-processed ARRAY ref
+        (my $obj, $comp{$k}) = $t->unprocess($v, @dep);
+
+        # skip empties
         next unless defined $obj;
-        #warn Data::Dumper::Dumper($obj);
+
+        # accumulate
         push @out, [$k, $obj];
     }
 
@@ -587,6 +585,20 @@ sub make_uri {
 =head1 AUTHOR
 
 Dorian Taylor, C<< <dorian at cpan.org> >>
+
+=head1 SEE ALSO
+
+=over 4
+
+=item
+
+L<Params::Registry>
+
+=item
+
+L<Params::Registry::Template>
+
+=back
 
 =head1 LICENSE AND COPYRIGHT
 

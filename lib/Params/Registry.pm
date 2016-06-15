@@ -25,11 +25,11 @@ Params::Registry - Housekeeping for sets of named parameters
 
 =head1 VERSION
 
-Version 0.02
+Version 0.03
 
 =cut
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 =head1 SYNOPSIS
 
@@ -205,7 +205,9 @@ sub BUILD {
         my %t = %{$p->{$k}};
         my $x = $p->{$k} = Params::Registry::Template->new
             (%t, registry => $self);
-        if ($x->consumes > 0) {
+        if ($x->_consdep > 0) {
+            # shortcut because only parameters with dependencies will
+            # have a rank higher than zero
             $rank{$k} = 1;
             push @stack, $k;
         }
@@ -216,11 +218,11 @@ sub BUILD {
 
     # construct a rank tree
 
-    my %seen;
+    #my %seen;
     while (my $x = shift @stack) {
         #my %c = map { $_ => 1 } $p->{$x}->consumes;
         my $match = 0;
-        for my $c ($p->{$x}->consumes) {
+        for my $c ($p->{$x}->_consdep) {
             $match = 1 if $rank{$x} == $rank{$c};
             # XXX will this actually catch all cycles?
             Params::Registry::Error->throw
@@ -434,10 +436,23 @@ L<http://search.cpan.org/dist/Params-Registry/>
 
 =back
 
-
 =head1 SEE ALSO
 
+=over 4
+
+=item
+
+L<Params::Registry::Instance>
+
+=item
+
+L<Params::Registry::Template>
+
+=item
+
 L<Params::Validate>
+
+=back
 
 =head1 LICENSE AND COPYRIGHT
 

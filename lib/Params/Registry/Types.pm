@@ -7,6 +7,8 @@ use warnings FATAL => 'all';
 use Moose;
 use namespace::autoclean;
 
+use Tie::IxHash;
+
 use Set::Scalar;
 use Set::Infinite;
 
@@ -76,11 +78,30 @@ coerce Type, from Str, via {
 
 =head2 Dependency
 
+A dependency is just a set of keys that both maintains its order and
+can be conveniently queried for membership. It is implemented via
+L<Tie::IxHash>.
+
 =cut
 
-subtype Dependency, as HashRef;
+subtype Dependency, as HashRef[Bool],
+    where { my $tied = tied %$_; $tied && $tied->isa('Tie::IxHash') };
 
-coerce Dependency, from ArrayRef, via { return { map { $_ => 1 } @{$_[0]} } };
+sub ixhash_ref {
+    tie my %ix, 'Tie::IxHash', @_;
+    \%ix;
+}
+
+coerce Dependency, from Str, via { ixhash_ref($_[0] => 1) };
+
+coerce Dependency, from ArrayRef, via { ixhash_ref(map { $_ => 1 } @{$_[0]}) };
+
+# actually we don't want this to be exposed because we're usin g
+# meaning
+
+# coerce Dependency, from HashRef,
+#    via { tie my %ix, 'Tie::IxHash', %{$_[0]}; \%ix };
+
 
 =head2 Template
 

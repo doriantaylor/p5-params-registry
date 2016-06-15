@@ -15,7 +15,8 @@ requires 'URI'                      => '1.60';
 requires 'Set::Scalar'              => '1.25';
 requires 'Set::Infinite'            => '0.63';
 requires 'DateTime'                 => '0.70';
-requires 'DateTime::Set'           => '0.31';
+requires 'DateTime::Set'            => '0.31';
+requires 'Tie::IxHash'              => '1.23';
 
 build_requires 'Test::More';
 
