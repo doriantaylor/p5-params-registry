@@ -2,7 +2,7 @@ NAME
     Params::Registry - Housekeeping for sets of named parameters
 
 VERSION
-    Version 0.02
+    Version 0.03
 
 SYNOPSIS
         use Params::Registry;
@@ -157,7 +157,11 @@ SUPPORT
         <http://search.cpan.org/dist/Params-Registry/>
 
 SEE ALSO
-    Params::Validate
+    *   Params::Registry::Instance
+
+    *   Params::Registry::Template
+
+    *   Params::Validate
 
 LICENSE AND COPYRIGHT
     Copyright 2013 Dorian Taylor.

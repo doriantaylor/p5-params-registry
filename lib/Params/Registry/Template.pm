@@ -792,7 +792,7 @@ sub unprocess {
     if ($self->composite) {
         if (my $u = $self->unwind) {
             try {
-                ($obj, $complement) = $u->($self, $obj);
+                ($obj, $complement) = $u->($self, $obj, @rest);
             } catch {
                 Params::Registry::Error->throw("Could not execute unwind: $_")
             };
