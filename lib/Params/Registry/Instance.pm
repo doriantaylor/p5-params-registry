@@ -12,8 +12,8 @@ use Params::Registry::Error;
 use Scalar::Util ();
 use Try::Tiny;
 
-use constant INF => 100**100**100;
-use constant NEG_INF => 1 - INF;
+#use constant INF => 100**100**100;
+#use constant NEG_INF => 1 - INF;
 
 =head1 NAME
 
@@ -361,17 +361,29 @@ Generates a data structure suitable to pass into L<SQL::Abstract>
 
 sub _do_span {
     my ($span, $universe) = @_;
-    my $u = $universe->isa('DateTime::SpanSet') ? $universe->span : $universe;
-    my ($s, $e, $us, $ue) = ($span->start, $span->end, $u->start, $u->end);
 
+    my ($s, $e) = ($span->start, $span->end);
+
+    # deal with possibly-empty universe
+    my ($us, $ue);
+    if ($universe) {
+        my $u = $universe->isa('DateTime::SpanSet')
+            ? $universe->span : $universe;
+        ($us, $ue) = ($u->start, $u->end);
+    }
+
+    # adjust for open sets
     my $sop = $span->start_is_open ? '>' : '>=';
     my $eop = $span->end_is_open   ? '<' : '<=';
 
+    # XXX this does not adjust for BETWEEN or when start and end are
+    # the same
+
     my %out;
-    if ($s->is_finite and $s > $us) {
+    if ($s->is_finite and (!$us or $s > $us)) {
         $out{$sop} = $s;
     }
-    if ($e->is_finite and $e < $ue) {
+    if ($e->is_finite and (!$ue or $e < $ue)) {
         $out{$eop} = $e;
     }
 
@@ -413,9 +425,13 @@ my %TYPES = (
         my ($key, $val, $template) = @_;
         return if $val->is_empty;
 
+        # bail out if the span is wider than the universe
         my $universe = $template->universe;
-        return if $val->is_span
+        return if $universe and $val->is_span
             and $val->min <= $universe->min and $val->max >= $universe->max;
+
+        my $inf  = Set::Infinite->inf;
+        my $ninf = Set::Infinite->minus_inf;
 
         my @ranges;
         my ($span, $tail) = $val->first;
@@ -428,15 +444,15 @@ my %TYPES = (
             $xop = $xop ? '<' : '<=';
 
             my %rec;
-            if ($min == NEG_INF and $max == INF) {
+            if ($min == $ninf and $max == $inf) {
                 next;
             }
-            elsif ($closed and $min > NEG_INF and $max < INF) {
+            elsif ($closed and $min > $ninf and $max < $inf) {
                 $rec{-between} = [$min, $max];
             }
             else {
-                $rec{$mop} = $min + 0 unless $min == NEG_INF;
-                $rec{$xop} = $max + 0 unless $max == INF;
+                $rec{$mop} = $min + 0 unless $min == $ninf;
+                $rec{$xop} = $max + 0 unless $max == $inf;
             }
 
             push @ranges, \%rec;
