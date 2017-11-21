@@ -25,11 +25,11 @@ Params::Registry - Housekeeping for sets of named parameters
 
 =head1 VERSION
 
-Version 0.04
+Version 0.07
 
 =cut
 
-our $VERSION = '0.04';
+our $VERSION = '0.07';
 
 =head1 SYNOPSIS
 
@@ -371,7 +371,7 @@ sub process {
 
     my $instance = Params::Registry::Instance->new(registry => $self);
 
-    $instance->set($obj, -defaults => 1);
+    $instance->set($obj, -defaults => 1, -force => 1);
 }
 
 =head2 template $KEY

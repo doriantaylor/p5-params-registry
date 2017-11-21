@@ -21,11 +21,11 @@ Params::Registry::Instance - An instance of registered parameters
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 has _registry => (
     is       => 'ro',
@@ -196,7 +196,7 @@ sub set {
         %p = @_;
 
         # pull metaparams out of ordinary params
-        %meta = map { $_ => delete $p{$_} } qw(-defaults);
+        %meta = map { $_ => delete $p{$_} } qw(-defaults -force);
     }
 
     # grab the parent object that stores all the configuration data
@@ -221,8 +221,6 @@ sub set {
         # each rank has a list of parameters which are roughly in the
         # original sequence provided to the registry
         for my $p (@$list) {
-            # retrieve the appropriate template object
-            my $t = $r->template($p);
 
             # normalize input value(s) if present
             my @v;
@@ -232,6 +230,12 @@ sub set {
                 $v = [$v] if !$rv || $rv ne 'ARRAY';
                 @v = @$v;
             }
+
+            # skip if there's nothing to set
+            next if @v == 0 and !$meta{-force};
+
+            # retrieve the appropriate template object
+            my $t = $r->template($p);
 
             # run the preprocessor
             my @deps = $t->_consdep;
@@ -252,7 +256,7 @@ sub set {
             if (!$err{$p} and @v > 0) {
                 try {
                     my $tmp = $t->process(@v);
-                    $out{$p} = $tmp if defined $tmp;
+                    $out{$p} = $tmp if defined $tmp or $t->empty;
                 } catch {
                     $err{$p} = $_;
                 };
@@ -347,7 +351,7 @@ sub clone {
         _content => \%orig,
     );
 
-    $out->set(\%p);
+    $out->set(\%p) if keys %p;
 
     $out;
 }
