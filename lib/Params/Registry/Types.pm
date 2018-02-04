@@ -44,11 +44,11 @@ Params::Registry::Types - Types for Params::Registry
 
 =head1 VERSION
 
-Version 0.02
+Version 0.03
 
 =cut
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 
 =head1 SYNOPSIS
@@ -257,8 +257,8 @@ coerce TokenSet, from ArrayRef[Str], via { Set::Scalar->new(@{$_[0]}) };
 
 class_type NumberRange, { class => 'Set::Infinite' };
 
-coerce NumberRange, from ArrayRef[Maybe[Num]], via {
-    my ($s, $e) = @{$_[0]};
+sub _coerce_number_range {
+    my ($s, $e) = @{ref $_[0] eq 'ARRAY' ? $_[0] : [$_[0]]};
     #warn "hi i'm here";
     #warn defined $e;
     #require Data::Dumper;
@@ -278,7 +278,10 @@ coerce NumberRange, from ArrayRef[Maybe[Num]], via {
     }
 
     Set::Infinite->new($s, $e);
-};
+}
+
+coerce NumberRange, from Num, via \&_coerce_number_range;
+coerce NumberRange, from ArrayRef[Maybe[Num]], via \&_coerce_number_range;
 
 =head2 DateRange
 
