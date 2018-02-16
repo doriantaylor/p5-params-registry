@@ -1,5 +1,12 @@
 Revision history for Params-Registry
 
+0.09_02 Thu 15 Feb 2018 23:15:55 PST
+        - found a bug in `set`: should un`set` parameters declared undef
+        - found a bug in `make_uri`: should be no question mark if empty
+
+0.09_01 Thu 15 Feb 22:17:57 PST 2018
+        added a `template` to Params::Registry::Instance.
+
 0.08    Mon 12 Dec 17:57:50 PST 2017
         Added Instance to `default` argument spec. Made `unwind` work
         for single-valued parameters. Additional fixes for default values.
@@ -12,4 +19,3 @@ Revision history for Params-Registry
 
 0.01    Thu Mar  5 22:57:10 PST 2015
         After two and a half years of whingeing, the first release.
-

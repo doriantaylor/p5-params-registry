@@ -21,11 +21,11 @@ Params::Registry::Instance - An instance of registered parameters
 
 =head1 VERSION
 
-Version 0.03
+Version 0.04
 
 =cut
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 has _registry => (
     is       => 'ro',
@@ -230,6 +230,14 @@ sub set {
             my @v;
             if (exists $p{$p}) {
                 my $v = $p{$p};
+
+                # XXX i wonder how long it has been the case that you
+                # can't delete a param in `set`
+                unless (defined $v) {
+                    $del{$p} = 1;
+                    next;
+                }
+
                 my $rv = ref $v;
                 $v = [$v] if !$rv || $rv ne 'ARRAY';
                 @v = @$v;
@@ -325,6 +333,17 @@ sub group {
     }
 
     \%out;
+}
+
+=head2 template $KEY
+
+Retrieves the template for C<$KEY>.
+
+=cut
+
+sub template {
+    my ($self, $key) = @_;
+    $self->_registry->template($key);
 }
 
 =head2 clone $KEY => $VAL [...] | \%PAIRS
@@ -608,8 +627,9 @@ a link.
 
 sub make_uri {
     my ($self, $uri) = @_;
-    $uri = $uri->clone->canonical;
-    $uri->query($self->as_string);
+    $uri  = $uri->canonical;
+    my $q = $self->as_string;
+    $uri->query($q) if $q ne '';
     $uri;
 }
 
