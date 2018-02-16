@@ -21,11 +21,11 @@ Params::Registry::Instance - An instance of registered parameters
 
 =head1 VERSION
 
-Version 0.04
+Version 0.04_01
 
 =cut
 
-our $VERSION = '0.04';
+our $VERSION = '0.04_01';
 
 has _registry => (
     is       => 'ro',
@@ -629,7 +629,8 @@ sub make_uri {
     my ($self, $uri) = @_;
     $uri  = $uri->canonical;
     my $q = $self->as_string;
-    $uri->query($q) if $q ne '';
+    undef $q if defined $q and $q eq '';
+    $uri->query($q);
     $uri;
 }
 

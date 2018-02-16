@@ -1,6 +1,10 @@
 Revision history for Params-Registry
 
-0.09_02 Thu 15 Feb 2018 23:15:55 PST
+0.09_03 Fri 16 Feb 01:56:59 PST 2018
+        - changed behaviour of `make_uri` to unconditionally unset
+          query when empty
+
+0.09_02 Thu 15 Feb 23:15:55 PST 2018
         - found a bug in `set`: should un`set` parameters declared undef
         - found a bug in `make_uri`: should be no question mark if empty
 
