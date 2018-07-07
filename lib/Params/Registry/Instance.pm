@@ -8,6 +8,7 @@ use Moose;
 use namespace::autoclean;
 
 use Params::Registry::Error;
+use URI::Escape ();
 
 use Scalar::Util ();
 use Try::Tiny;
@@ -21,19 +22,23 @@ Params::Registry::Instance - An instance of registered parameters
 
 =head1 VERSION
 
-Version 0.04_01
+Version 0.04_03
 
 =cut
 
-our $VERSION = '0.04_01';
+our $VERSION = '0.04_03';
 
-has _registry => (
+has registry => (
     is       => 'ro',
     isa      => 'Params::Registry',
     required => 1,
     weak_ref => 1,
-    init_arg => 'registry',
+    #init_arg => 'registry',
 );
+
+sub _registry {
+    $_[0]->registry;
+}
 
 has _content => (
     is       => 'ro',
@@ -104,7 +109,7 @@ sub get {
 
     # otherwise...
 
-    my $t = $self->_registry->template($key);
+    my $t = $self->registry->template($key);
     my %c = map { $_ => 1 } $self->keys;
     my $c = scalar grep { $c{$_} } $t->conflicts;
 
@@ -204,7 +209,7 @@ sub set {
     }
 
     # grab the parent object that stores all the configuration data
-    my $r = $self->_registry;
+    my $r = $self->registry;
 
     # create a map of params to complement/negate
     my %neg;
@@ -323,7 +328,7 @@ sub group {
     my ($self, $key) = @_;
 
     my %out;
-    my @list = @{$self->_registry->_groups->{$key} || []};
+    my @list = @{$self->registry->_groups->{$key} || []};
     my $c = $self->_content;
     for my $k (@list) {
         # XXX ACTUALLY CLONE THESE (MAYBE)
@@ -343,7 +348,7 @@ Retrieves the template for C<$KEY>.
 
 sub template {
     my ($self, $key) = @_;
-    $self->_registry->template($key);
+    $self->registry->template($key);
 }
 
 =head2 clone $KEY => $VAL [...] | \%PAIRS
@@ -370,7 +375,7 @@ sub clone {
     }
 
     my $out = Params::Registry::Instance->new(
-        registry => $self->_registry,
+        registry => $self->registry,
         _content => \%orig,
     );
 
@@ -530,7 +535,7 @@ sub as_where_clause {
 
     my %out;
 
-    my $r = $self->_registry;
+    my $r = $self->registry;
 
     for my $kin ($self->keys) {
         # skip skeep skorrp
@@ -575,7 +580,7 @@ Generates the canonical URI query string according to the template.
 
 sub as_string {
     my $self = shift;
-    my $r = $self->_registry;
+    my $r = $self->registry;
 
     # this just creates [key => \@values], ...
     my (@out, %comp);
@@ -596,6 +601,9 @@ sub as_string {
         # skip empties
         next unless defined $obj;
 
+        # in general we want to be conservative about what we escape:
+        # control characters, space
+
         # accumulate
         push @out, [$k, $obj];
     }
@@ -608,7 +616,11 @@ sub as_string {
 
     # XXX we *also* need to handle escaping
 
-    return join '&', map { my $x = $_->[0]; map { "$x=$_" } @{$_->[1]} } @out;
+    return join '&', map {
+        my $x = $_->[0];
+        map {
+            sprintf '%s=%s', $x, URI::Escape::uri_escape_utf8
+                ($_, q{^-._~0-9A-Za-z\Q:/[]@!\$'()*+,;\E}) } @{$_->[1]} } @out;
 }
 
 =head2 make_uri $URI
