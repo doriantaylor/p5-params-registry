@@ -384,6 +384,18 @@ sub clone {
     $out;
 }
 
+=head2 as_hash
+
+Dump out a hash(ref) of the parameter instance, depending on the
+calling context.
+
+=cut
+
+sub as_hash {
+    my %out = %{$_[0]->_content};
+    wantarray ? %out : \%out;
+}
+
 =head2 as_where_clause
 
 Generates a data structure suitable to pass into L<SQL::Abstract>
