@@ -379,7 +379,10 @@ sub clone {
         _content => \%orig,
     );
 
+
     $out->set(\%p) if keys %p;
+
+    # warn 'waaaat ' . $out->as_string;
 
     $out;
 }
@@ -651,7 +654,8 @@ a link.
 
 sub make_uri {
     my ($self, $uri) = @_;
-    $uri  = $uri->canonical;
+    # looks like URI.pm has made canonical no longer always clone
+    $uri  = $uri->clone->canonical;
     my $q = $self->as_string;
     undef $q if defined $q and $q eq '';
     $uri->query($q);

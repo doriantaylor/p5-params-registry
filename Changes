@@ -1,5 +1,9 @@
 Revision history for Params-Registry
 
+0.09_05 Tue Dec  4 13:35:34 PST 2018
+        - changed make_uri to explicitly clone URI, because
+          $uri->canonical apparently doesn't clone anymore (or did it ever?)
+
 0.09_04 Fri Jul  6 17:25:02 PDT 2018
         - added escaping to Instance::as_string
 

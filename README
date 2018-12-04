@@ -2,7 +2,7 @@ NAME
     Params::Registry - Housekeeping for sets of named parameters
 
 VERSION
-    Version 0.09_04
+    Version 0.09_05
 
 SYNOPSIS
         use Params::Registry;

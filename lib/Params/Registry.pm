@@ -25,11 +25,11 @@ Params::Registry - Housekeeping for sets of named parameters
 
 =head1 VERSION
 
-Version 0.09_04
+Version 0.09_05
 
 =cut
 
-our $VERSION = '0.09_04';
+our $VERSION = '0.09_05';
 
 =head1 SYNOPSIS
 
